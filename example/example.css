@@ -1,0 +1,19 @@
+/*
+
+This is the loader for your mod's CSS files. Import your modules here.
+If you wish, you can also add rulesets that implement a "failed to load" message.
+Please do not add any other CSS.
+
+*/
+
+@import "modules/Example-module-1.css";
+@import "modules/Example-module-2.css";
+
+/*
+
+If you have a config file that is meant to be in the chrome folder, you can also
+import that here, like this:
+
+@import "../example-config.css"
+
+*/
