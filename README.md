@@ -2,25 +2,26 @@
 This is a template intended to make it easier for end-users to manually load and manage custom CSS.
 
 ## Setup Instructions
-1. In your **chrome** folder, save the **userchrome-loader** folder from this repo.
-   
-2. If you already have custom CSS in your **userChrome.css** file, back it up by copying the contents to a new CSS file indside the **userchrome-loader** folder.
+
+1. If you already have custom CSS in your **userChrome.css** file, back it up by copying the contents to a new CSS file indside the **chrome/** folder.
   
    - If you don't have any custom CSS in your userChrome.css file, skip this step.
 
-3. Copy the **userChrome.css** file from this repo into your own userChrome.css file. 
+2. Copy the **userChrome.css** file from this repo into your own userChrome.css file. 
 
-   - This should be the only content in your userChrome.css file.
+   - You can keep manual customizations in this file, however, uCL only uses it for import rules to call mods. 
 
-4. When you find a customization you want to add, copy the contents to a new CSS file inside the **userchrome-loader** folder. 
+3. When you find a customization you want to add, copy the contents to a new folder inside **chrome/**.
 
-5. Add the **@import** rule to **loader.css** with the path to the new CSS file made in the last step. 
+   - Make sure the new folder and CSS file have unique names. 
+
+4. Add the **@import** rule to **userChrome.css** with the path to the new CSS file made in the last step. 
 
 *Examples:*
 
-@import "userchrome-loader/example.css";
+@import "chrome/example/example.css";
 
-@import "userchrome-loader/new-folder/example2.css";
+@import "chrome/example-2/example-mod2.css";
 
 ## Why Use uCL?
 
@@ -29,7 +30,8 @@ Orginizing custom CSS into their own files and folders will significantly aid us
 This also allows Mod creaters to make their customizations more modular, allowing end users to pick and choose which features they want to add. 
 
 ## Mod Creators / CSS Wizards:
-Now when you upload some CSS with the intention of sharing, you can orginize your project folder structure by feauture. See [Natsumi Browser](https://github.com/greeeen-dev/natsumi-browser/tree/main) for the ideal project structure.
+Now when you upload some CSS with the intention of sharing, you can orginize your project folder structure by feauture with Modules. See [Natsumi Browser](https://github.com/greeeen-dev/natsumi-browser/tree/main) for the ideal project structure.
+
 ```
 mod
 |- mod.css
@@ -41,15 +43,11 @@ userChrome.css
 
 ## Further Examples:
 
-Here's what your **chrome** folder should look like:
+Here's what your **chrome** folder should look like, with some example mods already in place:
 
-![image](https://github.com/user-attachments/assets/80a1ef97-1afb-44aa-9ca8-d87ed70df9eb)
+![image](https://github.com/user-attachments/assets/3306ce43-fafe-406c-9a7f-dba00bac2fe0)
 
-Here's what your **userchrome-loader** folder should look like, with some example Mods already in place:
-
-![image](https://github.com/user-attachments/assets/384615b3-0fc4-40d3-ac0b-d6692a371f4b)
-
-And here's an example of **loader.css**
+And here's an example of **userChrome.css**
 
 ```
 /* === Load custom files === */
@@ -64,6 +62,9 @@ And here's an example of **loader.css**
 @import "userchrome-loader/natsumi/natsumi-urlbar.css";
 @import "userchrome-loader/natsumi/natsumi-loading.css";
 @import "userchrome-loader/natsumi/ui-tweaks.css";
+
+/* === Other custom CSS === */
+. . .
 ```
 
 
