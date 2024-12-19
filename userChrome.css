@@ -1,5 +1,5 @@
 /* If using userChrome-loader, do not add any custom CSS here. */
 
-/* Import custom CSS mods */
+/* Add Mod import rules here. */
 
 @import "example/example.css";
