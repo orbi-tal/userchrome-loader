@@ -30,6 +30,14 @@ This also allows Mod creaters to make their customizations more modular, allowin
 
 ## Mod Creators / CSS Wizards:
 Now when you upload some CSS with the intention of sharing, you can orginize your project folder structure by feauture. See [Natsumi Browser](https://github.com/greeeen-dev/natsumi-browser/tree/main) for the ideal project structure.
+```
+mod
+|- mod.css
+|- modules
+   |- module1.css
+   |- module2.css
+userChrome.css
+```
 
 ## Further Examples:
 
