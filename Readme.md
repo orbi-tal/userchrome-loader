@@ -2,19 +2,19 @@
 This is a template intended to make it easier for end-users to manually load and manage custom CSS.
 
 ## Setup Instructions
-**Step 1.** In your **chrome** folder, save the **userchrome-loader** folder from this repo.
+1. In your **chrome** folder, save the **userchrome-loader** folder from this repo.
    
-**Step 2.** If you already have custom CSS in your **userChrome.css** file, back it up by copying the contents to a new CSS file indside the **userchrome-loader** folder.
+2. If you already have custom CSS in your **userChrome.css** file, back it up by copying the contents to a new CSS file indside the **userchrome-loader** folder.
   
   - If you don't have any custom CSS in your userChrome.css file, skip this step.
 
-**Step 3.** Copy the **userChrome.css** file from this repo into your own userChrome.css file. 
+3. Copy the **userChrome.css** file from this repo into your own userChrome.css file. 
 
   - This should be the only content in your userChrome.css file.
 
-**Step 4.** When you find a customization you want to add, copy the contents to a new CSS file inside the **userchrome-loader** folder. 
+4. When you find a customization you want to add, copy the contents to a new CSS file inside the **userchrome-loader** folder. 
 
-**Step 5.** Add the **@import** rule to **loader.css** with the path to the new CSS file made in the last step. 
+5. Add the **@import** rule to **loader.css** with the path to the new CSS file made in the last step. 
 
 *Examples:*
 
