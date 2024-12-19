@@ -30,6 +30,14 @@ This also allows Mod creaters to make their customizations more modular, allowin
 
 ## Mod Creators / CSS Wizards:
 Now when you upload some CSS with the intention of sharing, you can orginize your project folder structure by feauture. See [Natsumi Browser](https://github.com/greeeen-dev/natsumi-browser/tree/main) for the ideal project structure.
+```
+mod
+|- mod.css
+|- modules
+   |- module1.css
+   |- module2.css
+userChrome.css
+```
 
 ## Further Examples:
 
@@ -47,15 +55,15 @@ And here's an example of **loader.css**
 /* === Load custom files === */
 
 @import "userchrome-loader/Cohesion/Cohesion.css";
-@import "userchrome-loadernatsumi/config.css";
-@import "userchrome-loadernatsumi/preload.css";
-@import "userchrome-loadernatsumi/patches.css";
-@import "userchrome-loadernatsumi/base-ui.css";
-@import "userchrome-loadernatsumi/tab-groups.css";
-@import "userchrome-loadernatsumi/horizontal-tabs.css";
-@import "userchrome-loadernatsumi/natsumi-urlbar.css";
-@import "userchrome-loadernatsumi/natsumi-loading.css";
-@import "userchrome-loadernatsumi/ui-tweaks.css";
+@import "userchrome-loader/natsumi/config.css";
+@import "userchrome-loader/natsumi/preload.css";
+@import "userchrome-loader/natsumi/patches.css";
+@import "userchrome-loader/natsumi/base-ui.css";
+@import "userchrome-loader/natsumi/tab-groups.css";
+@import "userchrome-loader/natsumi/horizontal-tabs.css";
+@import "userchrome-loader/natsumi/natsumi-urlbar.css";
+@import "userchrome-loader/natsumi/natsumi-loading.css";
+@import "userchrome-loader/natsumi/ui-tweaks.css";
 ```
 
 
