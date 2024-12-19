@@ -6,11 +6,11 @@ This is a template intended to make it easier for end-users to manually load and
    
 2. If you already have custom CSS in your **userChrome.css** file, back it up by copying the contents to a new CSS file indside the **userchrome-loader** folder.
   
-  - If you don't have any custom CSS in your userChrome.css file, skip this step.
+   - If you don't have any custom CSS in your userChrome.css file, skip this step.
 
 3. Copy the **userChrome.css** file from this repo into your own userChrome.css file. 
 
-  - This should be the only content in your userChrome.css file.
+   - This should be the only content in your userChrome.css file.
 
 4. When you find a customization you want to add, copy the contents to a new CSS file inside the **userchrome-loader** folder. 
 
