@@ -1,0 +1,8 @@
+# Core dependencies
+typing-extensions>=4.0.0
+setuptools>=45.0.0
+
+# GUI dependencies (optional, platform-specific)
+PyGObject>=3.42.0; platform_system == "Linux"  # For GTK dialogs on Linux
+pywin32>=305; platform_system == "Windows"     # For Windows native dialogs
+pyobjc-framework-Cocoa>=9.0; platform_system == "Darwin"  # For macOS native dialogs
