@@ -346,15 +346,35 @@ class Main:
                 print(f"Error reading file: {e}")
                 return "", True
 
-        lines = [line.strip() for line in content.splitlines() if line.strip()]
-        only_imports = all(line.startswith('@import') for line in lines)
+        # Strip comments and empty lines for checking imports
+        cleaned_lines = []
+        in_comment_block = False
 
-        # Check for circular imports
-        imports = [line for line in lines if line.startswith('@import')]
-        for imp in imports:
-            if imp in self.imported_files:
-                print(f"Warning: Potential circular import detected: {imp}")
-            self.imported_files.add(imp)
+        for line in content.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+
+            # Handle multi-line comments
+            if '/*' in line:
+                in_comment_block = True
+                line = line[:line.index('/*')].strip()
+            if '*/' in line:
+                in_comment_block = False
+                line = line[line.index('*/') + 2:].strip()
+
+            if not in_comment_block and line:
+                # Remove single-line comments
+                if '//' in line:
+                    line = line[:line.index('//')].strip()
+                if line:
+                    cleaned_lines.append(line)
+
+        # Check if all non-empty lines are imports
+        only_imports = all(
+            line.startswith('@import')
+            for line in cleaned_lines
+        )
 
         return content, only_imports
 
@@ -392,12 +412,73 @@ class Main:
         prompt = (
                 "\nWhat would you like to import?\n"
                 "1. Single CSS file\n"
-                "2. Folder of CSS files\n"
+                "2. Mod Folder\n"
                 "Choose (1-2): "
             )
         while True:
                 import_type = input(prompt).strip()
                 return import_type
+
+    def get_file_path_fallback(self) -> str | None:
+        """Simple fallback file picker using command line"""
+        try:
+            # Use zenity if available
+            if shutil.which('zenity'):
+                cmd = ['zenity', '--file-selection', '--title="Select CSS file"', '--file-filter="*.css"']
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode == 0:
+                    return result.stdout.strip()
+
+            # Otherwise use command line input
+            while True:
+                file_path = input("Enter path to CSS file: ").strip()
+                if not file_path:
+                    return None
+                if os.path.isfile(file_path) and file_path.endswith('.css'):
+                    return file_path
+                print("Please enter a valid CSS file path")
+
+        except Exception as e:
+            print(f"Error with file selection: {e}")
+            return None
+
+    def get_gtk_file_path(self) -> str | None:
+        """Get file path using GTK file picker"""
+        try:
+            import gi
+            gi.require_version('Gtk', '3.0')
+            from gi.repository import Gtk
+
+            dialog = Gtk.FileChooserDialog(
+                title="Select CSS file",
+                action=Gtk.FileChooserAction.OPEN
+            )
+
+            dialog.add_buttons(
+                "Cancel", Gtk.ResponseType.CANCEL,
+                "Open", Gtk.ResponseType.OK
+            )
+
+            filter_css = Gtk.FileFilter()
+            filter_css.set_name("CSS files")
+            filter_css.add_pattern("*.css")
+            dialog.add_filter(filter_css)
+
+            response = dialog.run()
+            file_path = None
+
+            if response == Gtk.ResponseType.OK:
+                file_path = dialog.get_filename()
+
+            dialog.destroy()
+            while Gtk.events_pending():
+                Gtk.main_iteration()
+
+            return file_path
+
+        except (ImportError, ValueError) as e:
+            print(f"GTK file picker failed: {e}")
+            return None
 
     def get_file_path(self) -> str | None:
         """Get file path using native OS file dialog"""
@@ -424,46 +505,17 @@ class Main:
 
             else:  # Linux
                 try:
-                    import gi
-                    gi.require_version('Gtk', '3.0')
-                    from gi.repository import Gtk
+                    # Try GTK file picker first
+                    result = self.get_gtk_file_path()
+                    if result:
+                        return result
 
-                    dialog = Gtk.FileChooserDialog(
-                        title="Select CSS file to import",
-                        action=Gtk.FileChooserAction.OPEN
-                    )
-
-                    # Add buttons using the recommended method
-                    dialog.add_buttons(
-                        "Cancel", Gtk.ResponseType.CANCEL,
-                        "Open", Gtk.ResponseType.OK
-                    )
-
-                    filter_css = Gtk.FileFilter()
-                    filter_css.set_name("CSS files")
-                    filter_css.add_pattern("*.css")
-                    dialog.add_filter(filter_css)
-
-                    filter_all = Gtk.FileFilter()
-                    filter_all.set_name("All files")
-                    filter_all.add_pattern("*")
-                    dialog.add_filter(filter_all)
-
-                    response = dialog.run()
-                    file_path = None
-
-                    if response == Gtk.ResponseType.OK:
-                        file_path = dialog.get_filename()
-
-                    dialog.destroy()
-                    while Gtk.events_pending():
-                        Gtk.main_iteration()
-
-                    return file_path
+                    # Fall back to simpler implementation if GTK fails
+                    return self.get_file_path_fallback()
 
                 except Exception as e:
-                    print(f"Error with Linux file dialog: {e}")
-                    return None
+                    print(f"Error with file dialog: {e}")
+                    return self.get_file_path_fallback()
 
         except subprocess.SubprocessError as e:
             print(f"Error opening file dialog: {e}")
@@ -606,7 +658,7 @@ class Main:
                 return subfolder
 
     def handle_folder_import(self, chrome_dir: str) -> str | None:
-        """Handle importing a folder of CSS files"""
+        """Handle importing a mod folder"""
         folder = self.get_folder_path()
 
         if not folder:
@@ -939,27 +991,122 @@ class Main:
 
         while True:
             imports = self.list_imports(userchrome_path)
-            if not imports:
-                print("No imports found in userChrome.css")
+
+            print("\nImport Management Menu:")
+            print("1. Toggle imports")
+            print("2. Remove specific import")
+            print("3. Remove all imports")
+            print("4. Return to main menu")
+
+            choice = input("Choose an option (1-4): ").strip()
+
+            if choice == "1":
+                self.toggle_imports_menu(imports, userchrome_path)
+            elif choice == "2":
+                self.remove_specific_import(imports, userchrome_path)
+            elif choice == "3":
+                if self.remove_all_imports(userchrome_path):
+                    print("All imports have been removed")
+                    return
+            elif choice == "4":
                 return
+            else:
+                print("Invalid choice")
 
-            print("\nCurrent imports:")
-            for i, (_, line, enabled) in enumerate(imports):
-                status = "Enabled" if enabled else "Disabled"
-                print(f"{i+1}. [{status}] {line}")
+    def toggle_imports_menu(self, imports: list[tuple[int, str, bool]], userchrome_path: str) -> None:
+        """Menu for toggling individual imports"""
+        if not imports:
+            print("No imports found in userChrome.css")
+            return
 
-            choice = input("\nEnter number to toggle import (or 'q' to quit): ").lower()
-            if choice == 'q':
-                break
+        print("\nCurrent imports:")
+        for i, (_, line, enabled) in enumerate(imports):
+            status = "Enabled" if enabled else "Disabled"
+            print(f"{i+1}. [{status}] {line}")
 
-            try:
-                index = int(choice) - 1
-                if 0 <= index < len(imports):
-                    self.toggle_import(userchrome_path, index, not imports[index][2])
-                else:
-                    print("Invalid selection")
-            except ValueError:
-                print("Please enter a number or 'q'")
+        choice = input("\nEnter number to toggle import (or 'b' to go back): ").lower()
+        if choice == 'b':
+            return
+
+        try:
+            index = int(choice) - 1
+            if 0 <= index < len(imports):
+                self.toggle_import(userchrome_path, index, not imports[index][2])
+            else:
+                print("Invalid selection")
+        except ValueError:
+            print("Please enter a number or 'b'")
+
+    def remove_specific_import(self, imports: list[tuple[int, str, bool]], userchrome_path: str) -> None:
+        """Remove a specific import from userChrome.css"""
+        if not imports:
+            print("No imports found in userChrome.css")
+            return
+
+        print("\nCurrent imports:")
+        for i, (_, line, _) in enumerate(imports):
+            print(f"{i+1}. {line}")
+
+        choice = input("\nEnter number to remove import (or 'b' to go back): ").lower()
+        if choice == 'b':
+            return
+
+        try:
+            index = int(choice) - 1
+            if 0 <= index < len(imports):
+                self.remove_import(userchrome_path, imports[index][0])
+                print("Import removed successfully")
+            else:
+                print("Invalid selection")
+        except ValueError:
+            print("Please enter a number or 'b'")
+
+    def remove_import(self, userchrome_path: str, line_number: int) -> None:
+        """Remove a specific import line from the file"""
+        try:
+            with open(userchrome_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+
+            if 0 <= line_number < len(lines):
+                del lines[line_number]
+
+                # Remove any empty lines at the end of the file
+                while lines and not lines[-1].strip():
+                    lines.pop()
+
+                with open(userchrome_path, 'w', encoding='utf-8') as f:
+                    f.writelines(lines)
+        except Exception as e:
+            print(f"Error removing import: {e}")
+
+    def remove_all_imports(self, userchrome_path: str) -> bool:
+        """Remove all imports from userChrome.css"""
+        try:
+            confirm = input("Are you sure you want to remove all imports? (y/n): ").lower()
+            if confirm != 'y':
+                return False
+
+            with open(userchrome_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+
+            # Keep only non-import lines
+            new_lines = [
+                line for line in lines
+                if not line.strip().startswith('@import') and
+                not (line.strip().startswith('/*') and '@import' in line and line.strip().endswith('*/'))
+            ]
+
+            # Remove empty lines at the end
+            while new_lines and not new_lines[-1].strip():
+                new_lines.pop()
+
+            with open(userchrome_path, 'w', encoding='utf-8') as f:
+                f.writelines(new_lines)
+
+            return True
+        except Exception as e:
+            print(f"Error removing imports: {e}")
+            return False
 
     def confirm_replace(self, filename: str) -> bool:
         """Confirm if user wants to replace existing file"""
@@ -990,7 +1137,7 @@ class Main:
             print("Please enter 1, 2, or 3")
 
     def copy_folder(self, source_folder: str, chrome_dir: str, organization: str) -> str | None:
-        """Copy a folder of CSS files and return the folder name for import"""
+        """Copy a mod folder and return the folder name for import"""
         folder_name = os.path.basename(source_folder)
 
         # Set up destination
@@ -1020,8 +1167,14 @@ class Main:
 
         if os.path.exists(userchrome_path):
             existing_content, only_imports = self.read_userchrome(userchrome_path)
+            # Only create backup if the file contains non-import content
             if not only_imports and existing_content.strip():
-                existing_content = self.handle_backup(chrome_dir, userchrome_path)
+                backup_content = self.handle_backup(chrome_dir, userchrome_path)
+                # Only update existing_content if backup was created and user wants to import it
+                if backup_content:
+                    existing_content = backup_content
+            else:
+                print("No backup needed - file contains only imports")
 
         return existing_content, only_imports
 
@@ -1085,13 +1238,17 @@ class Main:
                 print("\nUserChrome Loader Menu:")
                 print("1. Import CSS")
                 print("2. Manage Imports")
+                print("3. Exit")
 
-                choice = input("Choose an option (1-2): ").strip()
+                choice = input("Choose an option (1-3): ").strip()
 
                 if choice == "1":
                     self.handle_import(chrome_dir)
                 elif choice == "2":
                     self.manage_imports(chrome_dir)
+                elif choice == "3":
+                    print("Exiting UserChrome Loader...")
+                    break
                 else:
                     print("Invalid choice")
 
