@@ -420,65 +420,23 @@ class Main:
                 return import_type
 
     def get_file_path_fallback(self) -> str | None:
-        """Simple fallback file picker using command line"""
-        try:
-            # Use zenity if available
-            if shutil.which('zenity'):
-                cmd = ['zenity', '--file-selection', '--title="Select CSS file"', '--file-filter="*.css"']
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                if result.returncode == 0:
-                    return result.stdout.strip()
+        """Simple fallback for file selection using command line"""
+        while True:
+            file_path = input("Enter path to CSS file (or press Enter to cancel): ").strip()
+            if not file_path:
+                return None
 
-            # Otherwise use command line input
-            while True:
-                file_path = input("Enter path to CSS file: ").strip()
-                if not file_path:
-                    return None
-                if os.path.isfile(file_path) and file_path.endswith('.css'):
+            # Expand user path (~/something) if present
+            file_path = os.path.expanduser(file_path)
+
+            # Check if file exists and is a CSS file
+            if os.path.isfile(file_path):
+                if file_path.lower().endswith('.css'):
                     return file_path
-                print("Please enter a valid CSS file path")
-
-        except Exception as e:
-            print(f"Error with file selection: {e}")
-            return None
-
-    def get_gtk_file_path(self) -> str | None:
-        """Get file path using GTK file picker"""
-        try:
-            import gi
-            gi.require_version('Gtk', '3.0')
-            from gi.repository import Gtk
-
-            dialog = Gtk.FileChooserDialog(
-                title="Select CSS file",
-                action=Gtk.FileChooserAction.OPEN
-            )
-
-            dialog.add_buttons(
-                "Cancel", Gtk.ResponseType.CANCEL,
-                "Open", Gtk.ResponseType.OK
-            )
-
-            filter_css = Gtk.FileFilter()
-            filter_css.set_name("CSS files")
-            filter_css.add_pattern("*.css")
-            dialog.add_filter(filter_css)
-
-            response = dialog.run()
-            file_path = None
-
-            if response == Gtk.ResponseType.OK:
-                file_path = dialog.get_filename()
-
-            dialog.destroy()
-            while Gtk.events_pending():
-                Gtk.main_iteration()
-
-            return file_path
-
-        except (ImportError, ValueError) as e:
-            print(f"GTK file picker failed: {e}")
-            return None
+                else:
+                    print("File must have .css extension")
+            else:
+                print("File not found")
 
     def get_file_path(self) -> str | None:
         """Get file path using native OS file dialog"""
@@ -504,109 +462,55 @@ class Main:
                 return result.stdout.strip()
 
             else:  # Linux
-                try:
-                    # Try GTK file picker first
-                    result = self.get_gtk_file_path()
-                    if result:
-                        return result
+                if shutil.which('zenity'):
+                    cmd = ['zenity', '--file-selection', '--title=Select CSS file', '--file-filter=*.css']
+                    try:
+                        result = subprocess.run(cmd, capture_output=True, text=True)
+                        if result.returncode == 0:
+                            return result.stdout.strip()
+                    except subprocess.SubprocessError:
+                        return self.get_file_path_fallback()
+                return self.get_file_path_fallback()
 
-                    # Fall back to simpler implementation if GTK fails
-                    return self.get_file_path_fallback()
-
-                except Exception as e:
-                    print(f"Error with file dialog: {e}")
-                    return self.get_file_path_fallback()
-
-        except subprocess.SubprocessError as e:
-            print(f"Error opening file dialog: {e}")
-            return None
+        except Exception as e:
+            print(f"Error with file dialog: {e}")
+            return self.get_file_path_fallback()
 
     def get_folder_path(self) -> str | None:
         """Get folder path using native file dialog for each OS"""
         if sys.platform == 'win32':  # Windows
             try:
-                import ctypes
-                from ctypes.wintypes import BROWSEINFO, LPARAM, LPCSTR, LPCWSTR, HWND
-
-                BIF_RETURNONLYFSDIRS = 0x00000001
-                BIF_USENEWUI = 0x00000050
-
-                BFFM_INITIALIZED = 1
-                MAX_PATH = 260
-
-                shell32 = ctypes.windll.shell32
-                ole32 = ctypes.windll.ole32
-
-                ole32.CoInitialize(None)
-
-                bi = BROWSEINFO()
-                bi.lpszTitle = "Select folder containing CSS files"
-                bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_USENEWUI
-
-                pidl = shell32.SHBrowseForFolderW(ctypes.byref(bi))
-                if pidl:
-                    path = ctypes.create_unicode_buffer(MAX_PATH)
-                    shell32.SHGetPathFromIDListW(pidl, path)
-                    shell32.CoTaskMemFree(pidl)
-                    return path.value
-                return None
-
-            except ImportError:
-                print("Could not load Windows API")
-                # Fallback to command line
+                cmd = '''powershell -command "& {
+                    Add-Type -AssemblyName System.Windows.Forms
+                    $f = New-Object System.Windows.Forms.FolderBrowserDialog
+                    $f.Description = 'Select folder containing CSS files'
+                    $f.ShowDialog()
+                    $f.SelectedPath
+                }"'''
+                result = subprocess.run(cmd, capture_output=True, text=True, shell=True)
+                return result.stdout.strip()
+            except Exception:
                 return input("Please enter folder path: ")
 
         elif sys.platform == 'darwin':  # macOS
             try:
-                from AppKit import NSOpenPanel, NSApp
-
-                panel = NSOpenPanel.alloc().init()
-                panel.setCanChooseDirectories_(True)
-                panel.setCanChooseFiles_(False)
-                panel.setAllowsMultipleSelection_(False)
-                panel.setTitle_("Select folder containing CSS files")
-
-                if panel.runModal() == 1:
-                    return str(panel.URLs()[0].path())
-                return None
-
-            except ImportError:
-                print("AppKit not available")
-                # Fallback to command line
+                cmd = ['osascript', '-e',
+                      'POSIX path of (choose folder with prompt "Select folder containing CSS files")']
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                return result.stdout.strip()
+            except Exception:
                 return input("Please enter folder path: ")
 
         else:  # Linux
-            try:
-                import gi
-                gi.require_version('Gtk', '3.0')
-                from gi.repository import Gtk
-                dialog = Gtk.FileChooserDialog(
-                    title="Select folder containing CSS files",
-                    action=Gtk.FileChooserAction.SELECT_FOLDER
-                )
-
-                # Add buttons using the recommended method
-                dialog.add_buttons(
-                    "Cancel", Gtk.ResponseType.CANCEL,
-                    "Select", Gtk.ResponseType.OK
-                )
-
-                response = dialog.run()
-                folder_path = None
-
-                if response == Gtk.ResponseType.OK:
-                    folder_path = dialog.get_filename()
-
-                dialog.destroy()
-                while Gtk.events_pending():
-                    Gtk.main_iteration()
-
-                return folder_path
-
-            except (ImportError, ValueError):
-                print("GTK not available. Please install python3-gi package")
-                # Fallback to command line
-                return input("Please enter folder path: ")
+            if shutil.which('zenity'):
+                cmd = ['zenity', '--file-selection', '--directory', '--title=Select folder containing CSS files']
+                try:
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    if result.returncode == 0:
+                        return result.stdout.strip()
+                except subprocess.SubprocessError:
+                    return input("Please enter folder path: ")
+            return input("Please enter folder path: ")
 
         return None
 
