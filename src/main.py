@@ -853,6 +853,7 @@ class Main:
 
             _ = self.write_userchrome_content(userchrome_path, content)
             print(f"Import {'enabled' if enable else 'disabled'} successfully")
+            print("To apply the changes, please restart Zen Browser")
 
         except Exception as e:
             print(f"Error toggling import: {e}")
