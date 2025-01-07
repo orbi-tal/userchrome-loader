@@ -391,26 +391,33 @@ class MainWindow(QMainWindow):
         self.stacked_widget.addWidget(page)
 
     def load_profiles(self):
-        self.profile_combo.clear()  # Clear existing items first
+        """Load available profiles"""
+        self.profile_combo.clear()
         profiles = self.chrome_loader.get_profile_info()
-        print(f"Found {len(profiles)} profiles")  # Debug print
+        print(f"\nLoading {len(profiles)} profiles into combo box")
 
         for profile in profiles:
-            display_name = str(profile['display_name'])  # Ensure string type
-            if profile['is_default']:
+            display_name = str(profile['display_name'])
+            is_default = profile['is_default']
+            print(f"\nProcessing profile:")
+            print(f"  Display name: {display_name}")
+            print(f"  Is default: {is_default}")
+
+            if is_default:
                 display_name += " (Default)"
+                print(f"  Modified display name: {display_name}")
+
             self.profile_combo.addItem(display_name, profile)
-            print(f"Added profile: {display_name}")  # Debug print
 
     def handle_profile_selection(self):
-        print("Profile selection handler called")  # Debug print
+        print("Profile selection handler called")
 
         if self.profile_combo.count() == 0:
             QMessageBox.warning(self, "Error", "No profiles available")
             return
 
         selected_profile = self.profile_combo.currentData()
-        print(f"Selected profile: {selected_profile}")  # Debug print
+        print(f"Selected profile: {selected_profile}")
 
         if self.chrome_loader.check_profile_lock(selected_profile):
             QMessageBox.warning(self, "Warning",
@@ -418,7 +425,7 @@ class MainWindow(QMainWindow):
             return
 
         chrome_dir = self.chrome_loader.setup_chrome_dir(selected_profile)
-        print(f"Chrome dir: {chrome_dir}")  # Debug print
+        print(f"Chrome dir: {chrome_dir}")
 
         if not chrome_dir:
             QMessageBox.warning(self, "Error", "Could not set up chrome directory")

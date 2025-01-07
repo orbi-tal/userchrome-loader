@@ -120,7 +120,38 @@ class Main:
 
     def setup_paths(self):
         """Set up paths based on OS and installation type"""
-        if os.name == 'nt':  # Windows
+        if sys.platform == 'darwin':  # macOS
+            possible_paths = [
+                os.path.join(
+                    self.home_dir,
+                    'Library',
+                    'Application Support',
+                    'Zen',
+                    'profiles.ini'
+                ),
+                os.path.join(
+                    self.home_dir,
+                    'Library',
+                    'Zen',
+                    'profiles.ini'
+                )
+            ]
+
+            # Find first existing path or use the modern path
+            for path in possible_paths:
+                if os.path.exists(path):
+                    self.profiles_ini_path = path
+                    break
+            else:
+                # If no path exists, use the modern path and create directories
+                self.profiles_ini_path = possible_paths[0]
+                try:
+                    os.makedirs(os.path.dirname(self.profiles_ini_path), exist_ok=True)
+                except Exception as e:
+                    print(f"Error creating directories: {e}")
+                    raise
+
+        elif os.name == 'nt':  # Windows
             self.profiles_ini_path = os.path.join(
                 self.home_dir,
                 'AppData',
@@ -128,32 +159,8 @@ class Main:
                 'Zen',
                 'profiles.ini'
             )
-
-        elif sys.platform == 'darwin':  # macOS
-            # Try modern macOS path first
-            modern_path = os.path.join(
-                self.home_dir,
-                'Library',
-                'Application Support',
-                'Zen',
-                'profiles.ini'
-            )
-            # Fallback to older macOS path
-            legacy_path = os.path.join(
-                self.home_dir,
-                'Library',
-                'Zen',
-                'profiles.ini'
-            )
-
-            if os.path.exists(modern_path):
-                self.profiles_ini_path = modern_path
-            else:
-                self.profiles_ini_path = legacy_path
-
         elif sys.platform.startswith('linux'):  # Linux
             installation = self.select_installation()
-
             if installation == 'flatpak':
                 self.profiles_ini_path = os.path.join(
                     self.home_dir,
@@ -169,16 +176,37 @@ class Main:
                     '.zen',
                     'profiles.ini'
                 )
-
         else:
             raise NotImplementedError(f"Operating system {sys.platform} is not supported")
 
         # Set zen_dir based on profiles.ini location
         self.zen_dir = os.path.dirname(self.profiles_ini_path)
 
-        # Verify the profiles.ini exists
+        # Print debug information
+        print(f"Home directory: {self.home_dir}")
+        print(f"Zen directory: {self.zen_dir}")
+        print(f"Profiles.ini path: {self.profiles_ini_path}")
+
+        # Check if directories exist and are accessible
+        if not os.path.exists(self.zen_dir):
+            try:
+                os.makedirs(self.zen_dir, exist_ok=True)
+                print(f"Created Zen directory: {self.zen_dir}")
+            except Exception as e:
+                print(f"Error creating Zen directory: {e}")
+                raise
+
+        # Verify the profiles.ini exists or can be created
         if not os.path.exists(self.profiles_ini_path):
             print(f"Warning: profiles.ini not found at {self.profiles_ini_path}")
+            try:
+                # Create an empty profiles.ini if it doesn't exist
+                with open(self.profiles_ini_path, 'w', encoding='utf-8') as f:
+                    f.write("[General]\n")
+                print(f"Created empty profiles.ini at {self.profiles_ini_path}")
+            except Exception as e:
+                print(f"Error creating profiles.ini: {e}")
+                raise
 
     def select_profile(self, profiles: list[dict[str, str | bool]]) -> dict[str, str | bool] | None:
         """Allow user to select a profile if multiple profiles exist"""
@@ -233,20 +261,34 @@ class Main:
         config = configparser.ConfigParser()
         try:
             _ = config.read(self.profiles_ini_path)
+            profiles = []
 
-            return [
-                {
-                    'name': os.path.basename(path),
-                    'path': os.path.join(self.zen_dir, path) if is_relative else path,
-                    'display_name': config.get(section, 'Name',
-                        fallback=os.path.basename(path).split('.')[0]),
-                    'is_default': config.get(section, 'Default', fallback=False)
-                }
-                for section in config.sections()
-                if section.startswith('Profile')
-                and (path := config.get(section, 'Path', fallback=None))
-                and (is_relative := config.getboolean(section, 'IsRelative', fallback=True))
-            ]
+            for section in config.sections():
+                if section.startswith('Profile'):
+                    path = config.get(section, 'Path', fallback=None)
+                    is_relative = config.getboolean(section, 'IsRelative', fallback=True)
+
+                    if path:
+                        is_default = config.getboolean(section, 'Default', fallback=False)
+                        display_name = config.get(section, 'Name',
+                            fallback=os.path.basename(path).split('.')[0])
+
+                        # Debug print
+                        print(f"Profile found:")
+                        print(f"  Section: {section}")
+                        print(f"  Path: {path}")
+                        print(f"  Is Default: {is_default}")
+                        print(f"  Display Name: {display_name}")
+
+                        profile = {
+                            'name': os.path.basename(path),
+                            'path': os.path.join(self.zen_dir, path) if is_relative else path,
+                            'display_name': display_name,
+                            'is_default': is_default
+                        }
+                        profiles.append(profile)
+
+            return profiles
 
         except Exception as e:
             print(f"Error reading profiles.ini: {e}")
