@@ -67,48 +67,100 @@ And here's an example of **userChrome.css**
 . . .
 ```
 
-# UserChrome Loader for Zen Browser
+# UserChrome Loader GUI
 
 A user-friendly tool to manage UserChrome CSS files for Zen Browser.
 
 ## Features
 
 - Import single CSS files or entire folders
-- Manage existing imports (enable/disable)
+- Manage existing imports (enable/disable/remove)
 - Support for multiple profiles
 - Automatic backup creation
 - Cross-platform support (Windows, macOS, Linux)
 - Support for both standard and Flatpak installations on Linux
 
-## Installation
+## Quick Start (Python Scripts)
 
-### From Source
+Requirements:
+- Python 3.12 or higher
+
 ```bash
-pip install .
+# Clone the repository
+git clone https://github.com/orbi-tal/userchrome-loader.git
+cd userchrome-loader
+
+# Run the GUI directly
+python src/gui.py
+
+# Or run the CLI version
+python src/main.py
 ```
 
-### From Releases
-Download the appropriate binary for your platform from the Releases page.
+## Building from Source
+
+Requirements:
+- Python 3.12 or higher
+- pip (Python package installer)
+
+```bash
+# Clone the repository
+git clone https://github.com/orbi-tal/userchrome-loader.git
+cd userchrome-loader
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # or activate.csh, or activate.fish for fish shell
+
+# Install dependencies
+pip install PyQt6 PyQt6-sip pyinstaller
+pip install -r requirements.txt
+
+# Run directly
+python src/gui.py
+
+# Or build executable
+pyinstaller --clean main.spec
+
+# Run the built executable
+./dist/userchrome-loader
+```
 
 ## Usage
 
-Simply run:
-```bash
-userchrome-loader
-```
+1. **Profile Selection**
+   - Select between standard or Flatpak installation (Linux only)
+   - Choose which profile to modify
 
-The tool will guide you through the process of:
-1. Selecting your Zen Browser profile
-2. Importing CSS files
-3. Managing existing imports
+2. **Importing CSS**
+   - Choose between importing a single CSS file or a mod folder
+   - For single files:
+     - Select your CSS file
+     - The file will be copied to your chrome directory
+   - For mod folders:
+     - Select a folder containing CSS files
+     - Choose organization method (direct copy or subfolder)
 
-## Development
+3. **Managing Imports**
+   - View all current imports
+   - Enable/disable specific imports
+   - Remove imports and their associated files
+   - Remove all imports at once
 
-Requirements:
-- Python 3.10 or higher
-- Dependencies listed in requirements.txt
+4. **Backup Features**
+   - Automatic backup of existing userChrome.css
+   - Option to import backup as a new CSS file
 
-To set up development environment:
-```bash
-pip install -r requirements.txt
-```
+## Troubleshooting
+
+1. **Application doesn't start**
+   - Ensure Zen Browser is not running when modifying profiles
+   - Check if you have the necessary permissions in your profile directory
+
+2. **Changes not visible**
+   - Restart Zen Browser to apply changes
+   - Ensure the CSS file is properly imported in userChrome.css
+
+3. **Linux-specific issues**
+   - For Flatpak installations, ensure proper permissions for ~/.var/app/
+   - For standard installations, check ~/.zen/ permissions

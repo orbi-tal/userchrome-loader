@@ -4,14 +4,14 @@ def read_requirements():
     with open('requirements.txt') as f:
         return [line.strip() for line in f if line.strip() and not line.startswith('#')]
 
-_ = setup(
+setup(
     name="userchrome-loader",
     version="1.0.0",
     packages=find_packages(),
     install_requires=read_requirements(),
     entry_points={
         'console_scripts': [
-            'userchrome-loader=src.main:main',
+            'userchrome-loader=src.gui:main',
         ],
     },
     author="orbi-tal",
@@ -24,5 +24,8 @@ _ = setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    python_requires=">=3.10",
+    python_requires=">=3.12",
+    extras_require={
+        'gui': ['PyQt6>=6.8.0', 'PyQt6-sip>=13.9.1'],
+    }
 )

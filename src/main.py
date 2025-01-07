@@ -439,80 +439,12 @@ class Main:
                 print("File not found")
 
     def get_file_path(self) -> str | None:
-        """Get file path using native OS file dialog"""
-        system = platform.system()
-
-        try:
-            if system == 'Windows':
-                # PowerShell command for Windows file picker
-                cmd = '''powershell -command "& {
-                    Add-Type -AssemblyName System.Windows.Forms
-                    $f = New-Object System.Windows.Forms.OpenFileDialog
-                    $f.Filter = 'CSS files (*.css)|*.css|All files (*.*)|*.*'
-                    $f.ShowDialog()
-                    $f.FileName
-                }"'''
-                result = subprocess.run(cmd, capture_output=True, text=True, shell=True)
-                return result.stdout.strip()
-
-            elif system == 'Darwin':  # macOS
-                cmd = ['osascript', '-e',
-                      'POSIX path of (choose file with prompt "Select CSS file" of type {"css", "public.plain-text"})']
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                return result.stdout.strip()
-
-            else:  # Linux
-                if shutil.which('zenity'):
-                    cmd = ['zenity', '--file-selection', '--title=Select CSS file', '--file-filter=*.css']
-                    try:
-                        result = subprocess.run(cmd, capture_output=True, text=True)
-                        if result.returncode == 0:
-                            return result.stdout.strip()
-                    except subprocess.SubprocessError:
-                        return self.get_file_path_fallback()
-                return self.get_file_path_fallback()
-
-        except Exception as e:
-            print(f"Error with file dialog: {e}")
-            return self.get_file_path_fallback()
+        """This will be handled by the GUI file dialog"""
+        return None  # Actual file selection is handled in GUI
 
     def get_folder_path(self) -> str | None:
-        """Get folder path using native file dialog for each OS"""
-        if sys.platform == 'win32':  # Windows
-            try:
-                cmd = '''powershell -command "& {
-                    Add-Type -AssemblyName System.Windows.Forms
-                    $f = New-Object System.Windows.Forms.FolderBrowserDialog
-                    $f.Description = 'Select folder containing CSS files'
-                    $f.ShowDialog()
-                    $f.SelectedPath
-                }"'''
-                result = subprocess.run(cmd, capture_output=True, text=True, shell=True)
-                return result.stdout.strip()
-            except Exception:
-                return input("Please enter folder path: ")
-
-        elif sys.platform == 'darwin':  # macOS
-            try:
-                cmd = ['osascript', '-e',
-                      'POSIX path of (choose folder with prompt "Select folder containing CSS files")']
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                return result.stdout.strip()
-            except Exception:
-                return input("Please enter folder path: ")
-
-        else:  # Linux
-            if shutil.which('zenity'):
-                cmd = ['zenity', '--file-selection', '--directory', '--title=Select folder containing CSS files']
-                try:
-                    result = subprocess.run(cmd, capture_output=True, text=True)
-                    if result.returncode == 0:
-                        return result.stdout.strip()
-                except subprocess.SubprocessError:
-                    return input("Please enter folder path: ")
-            return input("Please enter folder path: ")
-
-        return None
+        """This will be handled by the GUI folder dialog"""
+        return None  # Actual folder selection is handled in GUI
 
     def handle_single_file_import(self, chrome_dir: str) -> str | None:
         """Handle importing a single CSS file"""
@@ -550,16 +482,8 @@ class Main:
             return None
 
     def get_subfolder_preference(self) -> str:
-        while True:
-            subfolder = input(
-                """How should the files be imported?\n
-                (1) Copy directly to chrome folder\n
-                (2) Create subfolder\n
-                (3) Keep folder structure\n
-                Choose (1-3):"""
-            ).strip()
-            if subfolder in ["1", "2", "3"]:
-                return subfolder
+        """This will be handled by the GUI dialog"""
+        return "1"  # Default value, actual selection is handled in GUI
 
     def handle_folder_import(self, chrome_dir: str) -> str | None:
         """Handle importing a mod folder"""
@@ -985,61 +909,112 @@ class Main:
             print(f"Error removing import: {e}")
 
     def remove_all_imports(self, userchrome_path: str) -> bool:
-        """Remove all imports from userChrome.css"""
+        """Remove all imports and their corresponding files/folders"""
+        if not os.path.exists(userchrome_path):
+            print(f"File not found: {userchrome_path}")
+            return False
+
+        chrome_dir = os.path.dirname(userchrome_path)
+        files_to_remove = set()
+        folders_to_remove = set()
+
         try:
-            confirm = input("Are you sure you want to remove all imports? (y/n): ").lower()
-            if confirm != 'y':
-                return False
+            # Read the file content
+            content = ""
+            try:
+                with open(userchrome_path, 'r', encoding='utf-8') as file:
+                    content = file.read()
+            except UnicodeDecodeError:
+                with open(userchrome_path, 'r', encoding='latin-1') as file:
+                    content = file.read()
 
-            with open(userchrome_path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
+            # Find all import statements and collect files/folders to remove
+            import_matches = re.finditer(r"@import\s+url\(['\"](.+?)['\"]", content)
+            for match in import_matches:
+                imported_path = match.group(1)
+                full_path = os.path.join(chrome_dir, imported_path)
 
-            # Keep only non-import lines
-            new_lines = [
-                line for line in lines
-                if not line.strip().startswith('@import') and
-                not (line.strip().startswith('/*') and '@import' in line and line.strip().endswith('*/'))
-            ]
+                # Handle both files and folders
+                if '/' in imported_path or '\\' in imported_path:
+                    # If the import references a file in a subfolder
+                    folder_path = os.path.dirname(full_path)
+                    if folder_path != chrome_dir:
+                        folders_to_remove.add(folder_path)
+                else:
+                    # If it's a single file in the chrome directory
+                    files_to_remove.add(full_path)
 
-            # Remove empty lines at the end
+            # Process lines to remove imports
+            lines = content.splitlines(True)
+            new_lines = []
+            skip_next_empty = False
+
+            for line in lines:
+                current_line = line.strip()
+
+                if not current_line and skip_next_empty:
+                    skip_next_empty = False
+                    continue
+
+                is_import = (current_line.startswith('@import') or
+                            (current_line.startswith('/*') and '@import' in current_line))
+
+                if is_import:
+                    skip_next_empty = True
+                    if new_lines and not new_lines[-1].strip():
+                        new_lines.pop()
+                    continue
+
+                new_lines.append(line)
+
+            # Clean up trailing empty lines
             while new_lines and not new_lines[-1].strip():
                 new_lines.pop()
 
-            with open(userchrome_path, 'w', encoding='utf-8') as f:
-                f.writelines(new_lines)
+            # Ensure file has at least one newline
+            if not new_lines:
+                new_lines = ['\n']
+            elif not new_lines[-1].endswith('\n'):
+                new_lines[-1] += '\n'
+
+            # Write the processed content back to file
+            try:
+                with open(userchrome_path, 'w', encoding='utf-8') as file:
+                    file.writelines(new_lines)
+            except UnicodeEncodeError:
+                with open(userchrome_path, 'w', encoding='latin-1') as file:
+                    file.writelines(new_lines)
+
+            # Remove files and folders
+            for file_path in files_to_remove:
+                if os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                        print(f"Removed file: {file_path}")
+                    except Exception as e:
+                        print(f"Error removing file {file_path}: {e}")
+
+            for folder_path in folders_to_remove:
+                if os.path.exists(folder_path):
+                    try:
+                        shutil.rmtree(folder_path)
+                        print(f"Removed folder: {folder_path}")
+                    except Exception as e:
+                        print(f"Error removing folder {folder_path}: {e}")
 
             return True
+
         except Exception as e:
             print(f"Error removing imports: {e}")
             return False
 
     def confirm_replace(self, filename: str) -> bool:
-        """Confirm if user wants to replace existing file"""
-        while True:
-            response = input(f"""\nWarning: '{filename}' already exists in chrome directory.\n
-                Do you want to replace it? (y/n): """).lower()
-            if response in ['y', 'n']:
-                return response == 'y'
-            print("Please enter 'y' for yes or 'n' for no")
+        """This will be handled by the GUI dialog"""
+        return True
 
     def handle_existing_files(self, existing_files: list[str]) -> str | None:
-        """Handle existing files and get user response"""
-        print("\nThe following files already exist:")
-        for file in existing_files:
-            print(f"- {file}")
-
-        while True:
-            response = input(
-                """\nHow would you like to handle existing files?\n
-                1. Replace all\n
-                2. Skip existing (keep old files)\n
-                3. Cancel operation\n
-                Choose (1-3): """
-            ).strip()
-
-            if response in ["1", "2", "3"]:
-                return response if response != "3" else None
-            print("Please enter 1, 2, or 3")
+        """This will be handled by the GUI dialog"""
+        return "2"  # Default to skip, actual handling is done in GUI
 
     def copy_folder(self, source_folder: str, chrome_dir: str, organization: str) -> str | None:
         """Copy a mod folder and return the folder name for import"""
