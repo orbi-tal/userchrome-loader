@@ -5,9 +5,8 @@ PyQt6>=6.8.0
 PyQt6-sip>=13.9.1
 
 # GUI dependencies (platform-specific)
-PyGObject>=3.50.0; platform_system == "Linux"
 pywin32>=305; platform_system == "Windows"
 pyobjc-framework-Cocoa>=9.0; platform_system == "Darwin"
 
-# Build dependencies
-pyinstaller>=6.4.0
+# Optional Linux dependencies - install manually or through system package manager
+# PyGObject>=3.50.0; platform_system == "Linux"
