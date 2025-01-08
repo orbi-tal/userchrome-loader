@@ -121,92 +121,43 @@ class Main:
     def setup_paths(self):
         """Set up paths based on OS and installation type"""
         if sys.platform == 'darwin':  # macOS
-            possible_paths = [
-                os.path.join(
-                    self.home_dir,
-                    'Library',
-                    'Application Support',
-                    'Zen',
-                    'profiles.ini'
-                ),
-                os.path.join(
-                    self.home_dir,
-                    'Library',
-                    'Zen',
-                    'profiles.ini'
-                )
-            ]
-
-            # Find first existing path or use the modern path
-            for path in possible_paths:
-                if os.path.exists(path):
-                    self.profiles_ini_path = path
-                    break
-            else:
-                # If no path exists, use the modern path and create directories
-                self.profiles_ini_path = possible_paths[0]
-                try:
-                    os.makedirs(os.path.dirname(self.profiles_ini_path), exist_ok=True)
-                except Exception as e:
-                    print(f"Error creating directories: {e}")
-                    raise
+            self.zen_dir = os.path.join(
+                self.home_dir,
+                'Library',
+                'Application Support',
+                'zen'
+            )
+            self.profiles_ini_path = os.path.join(self.zen_dir, 'Profiles', 'profiles.ini')
 
         elif os.name == 'nt':  # Windows
-            self.profiles_ini_path = os.path.join(
-                self.home_dir,
-                'AppData',
-                'Roaming',
-                'Zen',
-                'profiles.ini'
-            )
+            appdata = os.getenv('APPDATA')
+            if not appdata:
+                raise EnvironmentError("APPDATA environment variable not found")
+
+            self.zen_dir = os.path.join(appdata, 'zen')
+            self.profiles_ini_path = os.path.join(self.zen_dir, 'Profiles', 'profiles.ini')
+
         elif sys.platform.startswith('linux'):  # Linux
             installation = self.select_installation()
             if installation == 'flatpak':
-                self.profiles_ini_path = os.path.join(
+                self.zen_dir = os.path.join(
                     self.home_dir,
                     '.var',
                     'app',
                     'io.github.zen_browser.zen',
-                    '.zen',
-                    'profiles.ini'
+                    '.zen'
                 )
             else:  # standard
-                self.profiles_ini_path = os.path.join(
-                    self.home_dir,
-                    '.zen',
-                    'profiles.ini'
-                )
-        else:
-            raise NotImplementedError(f"Operating system {sys.platform} is not supported")
-
-        # Set zen_dir based on profiles.ini location
-        self.zen_dir = os.path.dirname(self.profiles_ini_path)
+                self.zen_dir = os.path.join(self.home_dir, '.zen')
+            self.profiles_ini_path = os.path.join(self.zen_dir, 'profiles.ini')
 
         # Print debug information
         print(f"Home directory: {self.home_dir}")
         print(f"Zen directory: {self.zen_dir}")
         print(f"Profiles.ini path: {self.profiles_ini_path}")
 
-        # Check if directories exist and are accessible
-        if not os.path.exists(self.zen_dir):
-            try:
-                os.makedirs(self.zen_dir, exist_ok=True)
-                print(f"Created Zen directory: {self.zen_dir}")
-            except Exception as e:
-                print(f"Error creating Zen directory: {e}")
-                raise
-
-        # Verify the profiles.ini exists or can be created
-        if not os.path.exists(self.profiles_ini_path):
-            print(f"Warning: profiles.ini not found at {self.profiles_ini_path}")
-            try:
-                # Create an empty profiles.ini if it doesn't exist
-                with open(self.profiles_ini_path, 'w', encoding='utf-8') as f:
-                    f.write("[General]\n")
-                print(f"Created empty profiles.ini at {self.profiles_ini_path}")
-            except Exception as e:
-                print(f"Error creating profiles.ini: {e}")
-                raise
+        # Create directories if they don't exist
+        os.makedirs(os.path.dirname(self.profiles_ini_path), exist_ok=True)
 
     def select_profile(self, profiles: list[dict[str, str | bool]]) -> dict[str, str | bool] | None:
         """Allow user to select a profile if multiple profiles exist"""
@@ -252,41 +203,53 @@ class Main:
             except ValueError:
                 print("Please enter a number or press Enter for default profile.")
 
-    def get_profile_info(self) -> list[dict[str,str | bool]]:
+    def get_profile_info(self) -> list[dict[str, str | bool]]:
         """Get Zen Browser profile information from profiles.ini"""
         if not os.path.exists(self.profiles_ini_path):
-            print("profiles.ini not found")
+            print("Profiles.ini not found")
             return []
 
         config = configparser.ConfigParser()
         try:
+            # Read the profiles.ini file
             _ = config.read(self.profiles_ini_path)
             profiles = []
 
+            # Print debug info
+            print("\nAvailable sections in profiles.ini:")
+            print(config.sections())
+
             for section in config.sections():
                 if section.startswith('Profile'):
-                    path = config.get(section, 'Path', fallback=None)
-                    is_relative = config.getboolean(section, 'IsRelative', fallback=True)
-
-                    if path:
+                    try:
+                        # Get profile details
+                        path = config.get(section, 'Path')
+                        is_relative = config.getboolean(section, 'IsRelative', fallback=True)
+                        name = config.get(section, 'Name', fallback=os.path.basename(path))
                         is_default = config.getboolean(section, 'Default', fallback=False)
-                        display_name = config.get(section, 'Name',
-                            fallback=os.path.basename(path).split('.')[0])
 
-                        # Debug print
-                        print(f"Profile found:")
-                        print(f"  Section: {section}")
-                        print(f"  Path: {path}")
-                        print(f"  Is Default: {is_default}")
-                        print(f"  Display Name: {display_name}")
+                        # Construct full path
+                        full_path = os.path.join(self.zen_dir, path) if is_relative else path
 
                         profile = {
                             'name': os.path.basename(path),
-                            'path': os.path.join(self.zen_dir, path) if is_relative else path,
-                            'display_name': display_name,
+                            'path': full_path,
+                            'display_name': name,
                             'is_default': is_default
                         }
+
+                        # Print debug info
+                        print(f"\nFound profile:")
+                        print(f"  Section: {section}")
+                        print(f"  Path: {full_path}")
+                        print(f"  Name: {name}")
+                        print(f"  Is Default: {is_default}")
+
                         profiles.append(profile)
+
+                    except Exception as e:
+                        print(f"Error processing profile section {section}: {e}")
+                        continue
 
             return profiles
 

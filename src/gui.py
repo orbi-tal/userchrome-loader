@@ -1,4 +1,5 @@
 import os
+import configparser
 import sys
 import shutil
 import re
@@ -6,9 +7,102 @@ from typing import cast
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QPushButton, QLabel, QComboBox,
                             QFileDialog, QMessageBox, QStackedWidget, QDialog,
-                            QRadioButton)
+                            QRadioButton, QCheckBox)
 from PyQt6.QtCore import Qt
 from main import Main as ChromeLoader
+
+class WelcomeDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Welcome to UserChrome Loader")
+        self.setModal(True)
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Welcome header
+        welcome_label = QLabel("Welcome to UserChrome Loader!")
+        welcome_label.setStyleSheet("font-size: 18px; font-weight: bold;")
+        layout.addWidget(welcome_label)
+
+        # Description
+        description = QLabel(
+            "UserChrome Loader helps you customize Zen Browser's appearance "
+            "by managing CSS modifications.\n\n"
+            "With this tool, you can:"
+        )
+        description.setWordWrap(True)
+        layout.addWidget(description)
+
+        # Features list
+        features = [
+            "• Import single CSS files or mod folders",
+            "• Manage multiple CSS customizations",
+            "• Enable/disable modifications without removing them",
+            "• Easily remove unwanted customizations"
+        ]
+        features_label = QLabel("\n".join(features))
+        layout.addWidget(features_label)
+
+        # Important note
+        note_label = QLabel(
+            "\nImportant Note: Please close Zen Browser before making any changes. "
+            "Restart Zen Browser after making modifications to see the effects."
+        )
+        note_label.setStyleSheet("color: #d9534f;")
+        note_label.setWordWrap(True)
+        layout.addWidget(note_label)
+
+        # Don't show again checkbox
+        self.dont_show_checkbox = QCheckBox("Don't show this message again")
+        layout.addWidget(self.dont_show_checkbox)
+
+        # Continue button
+        button_box = QHBoxLayout()
+        continue_button = QPushButton("Get Started")
+        continue_button.setStyleSheet("padding: 6px 12px;")
+        continue_button.clicked.connect(self.accept)
+        button_box.addStretch()
+        button_box.addWidget(continue_button)
+        layout.addLayout(button_box)
+
+    def save_preference(self):
+        """Save the user's preference about showing the welcome dialog"""
+        if self.dont_show_checkbox.isChecked():
+            config_dir = os.path.expanduser('~/.config/userchrome-loader')
+            os.makedirs(config_dir, exist_ok=True)
+
+            config_path = os.path.join(config_dir, 'preferences.ini')
+            config = configparser.ConfigParser()
+
+            if os.path.exists(config_path):
+                config.read(config_path)
+
+            if not config.has_section('Preferences'):
+                config.add_section('Preferences')
+
+            config['Preferences']['show_welcome'] = 'false'
+
+            with open(config_path, 'w', encoding='utf-8') as f:
+                config.write(f)
+
+    def exec(self) -> int:
+        """Override exec to save preference when dialog is closed"""
+        result = super().exec()
+        if result == QDialog.DialogCode.Accepted:
+            self.save_preference()
+        return result
+
+    @staticmethod
+    def should_show() -> bool:
+        """Check if the welcome dialog should be shown"""
+        config_path = os.path.expanduser('~/.config/userchrome-loader/preferences.ini')
+        if os.path.exists(config_path):
+            config = configparser.ConfigParser()
+            config.read(config_path)
+            return config.get('Preferences', 'show_welcome', fallback='true').lower() == 'true'
+        return True
 
 class SubfolderDialog(QDialog):
     def __init__(self, parent=None):
@@ -171,6 +265,11 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.chrome_loader = ChromeLoader()
+
+        if WelcomeDialog.should_show():
+                welcome = WelcomeDialog(self)
+                welcome.exec()
+
         self.init_ui()
 
     def init_ui(self):
