@@ -7,7 +7,7 @@ from typing import cast
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QPushButton, QLabel, QComboBox,
                             QFileDialog, QMessageBox, QStackedWidget, QDialog,
-                            QRadioButton, QCheckBox)
+                            QRadioButton, QCheckBox, QListWidget)
 from PyQt6.QtCore import Qt
 from main import Main as ChromeLoader
 
@@ -365,12 +365,19 @@ class MainWindow(QMainWindow):
             self.stacked_widget.setCurrentIndex(1)
             return
 
+        if len(installations) == 1:
+            # Automatically select the only installation
+            install_type = installations[0][1]  # Get the installation type
+            self.chrome_loader.installation_type = install_type
+            self.chrome_loader.setup_paths()
+            self.load_profiles()
+            self.stacked_widget.setCurrentIndex(1)  # Go to profile selection
+            return
+
+        # Only show selection if there are multiple installations
         self.installation_combo.clear()
         for display_name, install_type, path in installations:
             self.installation_combo.addItem(f"{display_name} ({path})", install_type)
-
-        if len(installations) == 1:
-            self.handle_installation_selection()
 
     def handle_installation_selection(self):
         """Handle installation selection"""
@@ -463,8 +470,11 @@ class MainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
 
-        # Import list
-        self.import_list_combo = QComboBox()
+        # Import list - replace QComboBox with QListWidget
+        layout.addWidget(QLabel("Current Imports:"))
+        self.import_list = QListWidget()  # Changed from QComboBox to QListWidget
+        self.import_list.setMinimumHeight(200)  # Set minimum height for better visibility
+        layout.addWidget(self.import_list)
 
         # Buttons
         toggle_button = QPushButton("Toggle Selected Import")
@@ -479,8 +489,6 @@ class MainWindow(QMainWindow):
         back_button = QPushButton("Back to Main Menu")
         back_button.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(self.MAIN_MENU_PAGE))
 
-        layout.addWidget(QLabel("Current Imports:"))
-        layout.addWidget(self.import_list_combo)
         layout.addWidget(toggle_button)
         layout.addWidget(remove_button)
         layout.addWidget(remove_all_button)
@@ -760,10 +768,10 @@ class MainWindow(QMainWindow):
 
     def refresh_imports_list(self):
         """Refresh the imports list in the manage imports page"""
-        if not hasattr(self, 'import_list_combo'):
+        if not hasattr(self, 'import_list'):
             return
 
-        self.import_list_combo.clear()
+        self.import_list.clear()  # Changed from import_list_combo to import_list
         userchrome_path = os.path.join(self.chrome_dir, 'userChrome.css')
 
         if not os.path.exists(userchrome_path):
@@ -781,7 +789,7 @@ class MainWindow(QMainWindow):
                     # Remove comment markers for display
                     display_line = line.replace('/* ', '').replace(' */', '') if not is_enabled else line
                     status = "Enabled" if is_enabled else "Disabled"
-                    self.import_list_combo.addItem(f"[{status}] {display_line}")
+                    self.import_list.addItem(f"[{status}] {display_line}")
 
         except Exception as e:
             QMessageBox.warning(
@@ -791,26 +799,26 @@ class MainWindow(QMainWindow):
             )
 
     def load_manage_imports(self):
-        self.import_list_combo.clear()
+        self.import_list.clear()
         imports = self.chrome_loader.list_imports(
             f"{self.chrome_dir}/userChrome.css")
 
         for _, line, enabled in imports:
             status = "Enabled" if enabled else "Disabled"
-            self.import_list_combo.addItem(f"[{status}] {line}")
+            self.import_list.addItem(f"[{status}] {line}")
 
         self.stacked_widget.setCurrentIndex(self.MANAGE_PAGE)
 
     def toggle_selected_import(self):
         """Toggle selected import between enabled and disabled state"""
-        if self.import_list_combo.count() == 0:
+        if self.import_list.count() == 0:
             return
 
-        current_text = self.import_list_combo.currentText()
-        if not current_text:
+        current_item = self.import_list.currentItem()
+        if not current_item:
             return
 
-        # Extract the actual import line without the status prefix
+        current_text = current_item.text()
         import_line = current_text[current_text.find(']') + 2:]
         is_enabled = current_text.startswith('[Enabled]')
 
@@ -854,14 +862,14 @@ class MainWindow(QMainWindow):
 
     def remove_selected_import(self):
         """Remove selected import and its corresponding files"""
-        if self.import_list_combo.count() == 0:
+        if self.import_list.count() == 0:
             return
 
-        current_text = self.import_list_combo.currentText()
-        if not current_text:
+        current_item = self.import_list.currentItem()
+        if not current_item:
             return
 
-        # Extract the import line without the status prefix
+        current_text = current_item.text()
         import_line = current_text[current_text.find(']') + 2:]
 
         # Show confirmation dialog
