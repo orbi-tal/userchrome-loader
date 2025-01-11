@@ -297,41 +297,16 @@ class MainWindow(QMainWindow):
         self.stacked_widget.setCurrentIndex(0)
 
     def setup_installation_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-
-        # Title and description
-        layout.addWidget(QLabel("Select Zen Browser Installation:"))
-
-        # Installation type selection
-        self.installation_combo = QComboBox()
-
-        # Buttons
-        button_layout = QHBoxLayout()
-        select_button = QPushButton("Select Installation")
-        select_button.clicked.connect(self.handle_installation_selection)
-        exit_button = QPushButton("Exit")
-        exit_button.clicked.connect(self.close)
-
-        button_layout.addWidget(select_button)
-        button_layout.addWidget(exit_button)
-
-        layout.addWidget(self.installation_combo)
-        layout.addLayout(button_layout)
-        layout.addStretch()
-
-        self.stacked_widget.addWidget(page)
-
-    def load_installations(self):
-        """Load available Zen Browser installations"""
+        # First check if we should skip this page
         if not sys.platform.startswith('linux'):
             # For non-Linux systems, automatically proceed with standard installation
             self.chrome_loader.installation_type = 'standard'
             self.chrome_loader.setup_paths()
             self.load_profiles()
-            self.stacked_widget.setCurrentIndex(1)  # Go to profile selection
+            self.stacked_widget.setCurrentIndex(self.PROFILE_PAGE)
             return
 
+        # Check available installations on Linux
         flatpak_path = os.path.join(
             self.chrome_loader.home_dir,
             '.var',
@@ -354,6 +329,7 @@ class MainWindow(QMainWindow):
             installations.append(('Standard Installation', 'standard', standard_path))
 
         if not installations:
+            # No installations found, proceed with standard
             QMessageBox.warning(
                 self,
                 "No Installation Found",
@@ -362,22 +338,50 @@ class MainWindow(QMainWindow):
             self.chrome_loader.installation_type = 'standard'
             self.chrome_loader.setup_paths()
             self.load_profiles()
-            self.stacked_widget.setCurrentIndex(1)
+            self.stacked_widget.setCurrentIndex(self.PROFILE_PAGE)
             return
 
         if len(installations) == 1:
-            # Automatically select the only installation
-            install_type = installations[0][1]  # Get the installation type
+            # Single installation found, automatically select it
+            install_type = installations[0][1]
             self.chrome_loader.installation_type = install_type
             self.chrome_loader.setup_paths()
             self.load_profiles()
-            self.stacked_widget.setCurrentIndex(1)  # Go to profile selection
+            self.stacked_widget.setCurrentIndex(self.PROFILE_PAGE)
             return
 
-        # Only show selection if there are multiple installations
-        self.installation_combo.clear()
+        # Only create the installation page if multiple installations are found
+        page = QWidget()
+        layout = QVBoxLayout(page)
+
+        # Title and description
+        layout.addWidget(QLabel("Select Zen Browser Installation:"))
+
+        # Installation type selection
+        self.installation_combo = QComboBox()
         for display_name, install_type, path in installations:
             self.installation_combo.addItem(f"{display_name} ({path})", install_type)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        select_button = QPushButton("Select Installation")
+        select_button.clicked.connect(self.handle_installation_selection)
+        exit_button = QPushButton("Exit")
+        exit_button.clicked.connect(self.close)
+
+        button_layout.addWidget(select_button)
+        button_layout.addWidget(exit_button)
+
+        layout.addWidget(self.installation_combo)
+        layout.addLayout(button_layout)
+        layout.addStretch()
+
+        self.stacked_widget.addWidget(page)
+
+    def load_installations(self):
+        """Load available Zen Browser installations"""
+        # The logic is now handled in setup_installation_page
+        self.stacked_widget.setCurrentIndex(0)
 
     def handle_installation_selection(self):
         """Handle installation selection"""
