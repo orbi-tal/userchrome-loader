@@ -52,7 +52,7 @@ jobs:
       - name: Build with PyInstaller
         run: |
           export OPTIMIZE=1
-          pyinstaller --clean --upx-dir="$(which upx)" --optimize=2 main.spec
+          pyinstaller --clean --upx-dir="$(which upx)" main.spec
         shell: bash
 
       # Create platform-specific packages

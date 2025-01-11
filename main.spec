@@ -51,8 +51,37 @@ a = Analysis(
     noarchive=False,
 )
 
-# Enable compression
-pyz = PYZ(a.pure, a.zipped_data, cipher=None)
+# Remove unnecessary files from the bundle
+def remove_from_list(source, patterns):
+    for file in list(source):
+        for pattern in patterns:
+            if pattern in str(file):
+                source.remove(file)
+                break
+
+# Files to exclude from the bundle
+exclude_patterns = [
+    'QtNetwork',
+    'QtQml',
+    'QtQuick',
+    'QtSql',
+    'QtTest',
+    'QtDBus',
+    'Qt6Pdf',
+    'QtSvg',
+    'QtPrintSupport'
+]
+
+remove_from_list(a.binaries, exclude_patterns)
+remove_from_list(a.datas, exclude_patterns)
+
+# Enable maximum compression
+pyz = PYZ(
+    a.pure,
+    a.zipped_data,
+    cipher=None,
+    level=9  # Maximum compression level
+)
 
 exe = EXE(
     pyz,
@@ -64,8 +93,8 @@ exe = EXE(
     name='userchrome-loader',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=True, # Strip symbols
-    upx=True, # Enable UPX compression
+    strip=True,  # Strip symbols
+    upx=True,    # Enable UPX compression
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -74,7 +103,10 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     uac_admin=False,
-    icon=None
+    icon=None,
+    # Additional options for size optimization
+    compress=True,
+    optimize=2,  # Python optimization level
 )
 
 if sys.platform == 'darwin':
@@ -88,5 +120,7 @@ if sys.platform == 'darwin':
             'CFBundleVersion': '1.0.0',
             'NSHighResolutionCapable': 'True',
             'LSMinimumSystemVersion': '10.13.0',
+            # Add PythonPath to improve startup time
+            'PythonPath': '@executable_path/../Resources/lib/python3.12'
         },
     )
