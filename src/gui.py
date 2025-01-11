@@ -3,6 +3,7 @@ import configparser
 import sys
 import shutil
 import re
+import platform
 from typing import cast
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QPushButton, QLabel, QComboBox,
@@ -325,28 +326,53 @@ class MainWindow(QMainWindow):
         self.stacked_widget = QStackedWidget()
         main_layout.addWidget(self.stacked_widget)
 
-        # Create pages
+        # Create all pages
         self.setup_installation_page()
         self.setup_profile_page()
         self.setup_main_menu_page()
         self.setup_import_page()
         self.setup_manage_imports_page()
 
-        # Start with installation selection
-        self.load_installations()
-        self.stacked_widget.setCurrentIndex(0)
-
-    def setup_installation_page(self):
-        # First check if we should skip this page
-        if not sys.platform.startswith('linux'):
+        # Handle installation detection and selection
+        system = platform.system().lower()
+        if system != 'linux':
             # For non-Linux systems, automatically proceed with standard installation
             self.chrome_loader.installation_type = 'standard'
             self.chrome_loader.setup_paths()
             self.load_profiles()
             self.stacked_widget.setCurrentIndex(self.PROFILE_PAGE)
-            return
+        else:
+            # Check available installations on Linux
+            installations = self.get_available_installations()
 
-        # Check available installations on Linux
+            if not installations:
+                QMessageBox.warning(
+                    self,
+                    "No Installation Found",
+                    "No Zen Browser installation found.\nProceeding with standard installation."
+                )
+                self.chrome_loader.installation_type = 'standard'
+                self.chrome_loader.setup_paths()
+                self.load_profiles()
+                self.stacked_widget.setCurrentIndex(self.PROFILE_PAGE)
+            elif len(installations) == 1:
+                # Single installation found, automatically select it
+                install_type = installations[0][1]
+                self.chrome_loader.installation_type = install_type
+                self.chrome_loader.setup_paths()
+                self.load_profiles()
+                self.stacked_widget.setCurrentIndex(self.PROFILE_PAGE)
+            else:
+                # Multiple installations found, populate and show installation page
+                self.installation_combo.clear()
+                for display_name, install_type, path in installations:
+                    self.installation_combo.addItem(f"{display_name} ({path})", install_type)
+                self.stacked_widget.setCurrentIndex(self.INSTALLATION_PAGE)
+
+    def get_available_installations(self):
+        """Get list of available Zen Browser installations"""
+        installations = []
+
         flatpak_path = os.path.join(
             self.chrome_loader.home_dir,
             '.var',
@@ -362,35 +388,22 @@ class MainWindow(QMainWindow):
             'profiles.ini'
         )
 
-        installations = []
+        # Debug print statements
+        print(f"Checking flatpak path: {flatpak_path}")
+        print(f"Checking standard path: {standard_path}")
+
         if os.path.exists(flatpak_path):
+            print("Found Flatpak installation")
             installations.append(('Flatpak Installation', 'flatpak', flatpak_path))
+
         if os.path.exists(standard_path):
+            print("Found Standard installation")
             installations.append(('Standard Installation', 'standard', standard_path))
 
-        if not installations:
-            # No installations found, proceed with standard
-            QMessageBox.warning(
-                self,
-                "No Installation Found",
-                "No Zen Browser installation found.\nProceeding with standard installation."
-            )
-            self.chrome_loader.installation_type = 'standard'
-            self.chrome_loader.setup_paths()
-            self.load_profiles()
-            self.stacked_widget.setCurrentIndex(self.PROFILE_PAGE)
-            return
+        print(f"Found {len(installations)} installations")
+        return installations
 
-        if len(installations) == 1:
-            # Single installation found, automatically select it
-            install_type = installations[0][1]
-            self.chrome_loader.installation_type = install_type
-            self.chrome_loader.setup_paths()
-            self.load_profiles()
-            self.stacked_widget.setCurrentIndex(self.PROFILE_PAGE)
-            return
-
-        # Only create the installation page if multiple installations are found
+    def setup_installation_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
 
@@ -399,8 +412,6 @@ class MainWindow(QMainWindow):
 
         # Installation type selection
         self.installation_combo = QComboBox()
-        for display_name, install_type, path in installations:
-            self.installation_combo.addItem(f"{display_name} ({path})", install_type)
 
         # Buttons
         button_layout = QHBoxLayout()
