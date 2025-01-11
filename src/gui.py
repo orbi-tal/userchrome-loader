@@ -11,15 +11,17 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PyQt6.QtCore import Qt
 from main import Main as ChromeLoader
 
-class WelcomeDialog(QDialog):
+class WelcomeDialog(QMainWindow):  # Changed from QDialog to QMainWindow
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Welcome to UserChrome Loader")
-        self.setModal(True)
         self.setup_ui()
 
     def setup_ui(self):
-        layout = QVBoxLayout(self)
+        # Create central widget and main layout
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        layout = QVBoxLayout(central_widget)
 
         # Welcome header
         welcome_label = QLabel("Welcome to UserChrome Loader!")
@@ -45,6 +47,41 @@ class WelcomeDialog(QDialog):
         features_label = QLabel("\n".join(features))
         layout.addWidget(features_label)
 
+        # Usage Instructions
+        usage_label = QLabel("\nHow to Use:")
+        usage_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        layout.addWidget(usage_label)
+
+        instructions = [
+            "1. Close Zen Browser before making any changes",
+            "2. Select your browser profile",
+            "3. Import CSS:",
+            "   • For single files: Choose 'Import CSS' → 'Single CSS File'",
+            "   • For mod folders: Choose 'Import CSS' → 'Mod Folder'",
+            "4. Manage your imports:",
+            "   • Enable/disable specific modifications",
+            "   • Remove unwanted customizations",
+            "5. Restart Zen Browser to see your changes"
+        ]
+        instructions_label = QLabel("\n".join(instructions))
+        instructions_label.setWordWrap(True)
+        layout.addWidget(instructions_label)
+
+        # Tips Section
+        tips_label = QLabel("\nTips:")
+        tips_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        layout.addWidget(tips_label)
+
+        tips = [
+            "• Keep backups of your original CSS files",
+            "• Test one modification at a time",
+            "• Use the 'Manage Imports' feature to troubleshoot issues",
+            "• Remember to restart the browser after each change"
+        ]
+        tips_label = QLabel("\n".join(tips))
+        tips_label.setWordWrap(True)
+        layout.addWidget(tips_label)
+
         # Important note
         note_label = QLabel(
             "\nImportant Note: Please close Zen Browser before making any changes. "
@@ -60,12 +97,21 @@ class WelcomeDialog(QDialog):
 
         # Continue button
         button_box = QHBoxLayout()
-        continue_button = QPushButton("Get Started")
+        continue_button = QPushButton("Close")  # Changed from "Get Started" to "Close"
         continue_button.setStyleSheet("padding: 6px 12px;")
-        continue_button.clicked.connect(self.accept)
+        continue_button.clicked.connect(self.handle_close)
         button_box.addStretch()
         button_box.addWidget(continue_button)
         layout.addLayout(button_box)
+
+        # Set window size and position
+        self.setMinimumWidth(500)
+        self.adjustSize()
+
+    def handle_close(self):
+        """Handle window close and save preferences"""
+        self.save_preference()
+        self.close()
 
     def save_preference(self):
         """Save the user's preference about showing the welcome dialog"""
@@ -86,13 +132,6 @@ class WelcomeDialog(QDialog):
 
             with open(config_path, 'w', encoding='utf-8') as f:
                 config.write(f)
-
-    def exec(self) -> int:
-        """Override exec to save preference when dialog is closed"""
-        result = super().exec()
-        if result == QDialog.DialogCode.Accepted:
-            self.save_preference()
-        return result
 
     @staticmethod
     def should_show() -> bool:
@@ -266,9 +305,10 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.chrome_loader = ChromeLoader()
 
+        # Show welcome dialog if needed
         if WelcomeDialog.should_show():
-                welcome = WelcomeDialog(self)
-                welcome.exec()
+            self.welcome_dialog = WelcomeDialog(self)
+            self.welcome_dialog.show()  # Show as a window instead of modal dialog
 
         self.init_ui()
 
