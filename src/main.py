@@ -51,7 +51,7 @@ class Main:
 
     def check_path_length(self, path: str) -> bool:
         """Check if path length is valid for the current platform"""
-        if sys.platform == 'win32' and len(path) > 260:
+        if platform.system().lower() == 'windows' and len(path) > 260:
             print(f"Warning: Path exceeds Windows maximum length: {path}")
             return False
         return True
@@ -120,24 +120,29 @@ class Main:
 
     def setup_paths(self):
         """Set up paths based on OS and installation type"""
-        if sys.platform == 'darwin':  # macOS
+        system = platform.system().lower()
+
+        if system == 'darwin':  # macOS
             self.zen_dir = os.path.join(
                 self.home_dir,
                 'Library',
                 'Application Support',
                 'zen'
             )
-            self.profiles_ini_path = os.path.join(self.zen_dir, 'Profiles', 'profiles.ini')
+            self.profiles_ini_path = os.path.join(self.zen_dir, 'profiles.ini')
 
-        elif os.name == 'nt':  # Windows
+        elif system == 'windows':  # Windows
             appdata = os.getenv('APPDATA')
             if not appdata:
                 raise EnvironmentError("APPDATA environment variable not found")
 
             self.zen_dir = os.path.join(appdata, 'zen')
-            self.profiles_ini_path = os.path.join(self.zen_dir, 'Profiles', 'profiles.ini')
+            self.profiles_ini_path = os.path.join(self.zen_dir, 'profiles.ini')
 
-        elif sys.platform.startswith('linux'):  # Linux
+            print(f"Windows profile directory: {self.zen_dir}")
+            print(f"Profiles.ini path: {self.profiles_ini_path}")
+
+        elif system == 'linux':  # Linux
             installation = self.select_installation()
             if installation == 'flatpak':
                 self.zen_dir = os.path.join(
@@ -152,6 +157,7 @@ class Main:
             self.profiles_ini_path = os.path.join(self.zen_dir, 'profiles.ini')
 
         # Print debug information
+        print(f"System: {system}")
         print(f"Home directory: {self.home_dir}")
         print(f"Zen directory: {self.zen_dir}")
         print(f"Profiles.ini path: {self.profiles_ini_path}")
