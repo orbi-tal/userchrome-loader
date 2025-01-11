@@ -1,17 +1,39 @@
+# main.spec
 # -*- mode: python ; coding: utf-8 -*-
 import sys
 from PyInstaller.utils.hooks import collect_all
 
+# Only include essential PyQt6 modules
+hiddenimports = [
+    'PyQt6.QtWidgets',
+    'PyQt6.QtCore',
+    'PyQt6.QtGui'
+]
+
+# Collect minimal PyQt6 dependencies
 datas = []
 binaries = []
-hiddenimports = ['PyQt6.QtWidgets', 'PyQt6.QtCore', 'PyQt6.QtGui']
-
-# Collect all PyQt6 binaries and data
 for pkg in ['PyQt6']:
     data, bin, hidden = collect_all(pkg)
     datas.extend(data)
     binaries.extend(bin)
     hiddenimports.extend(hidden)
+
+# Exclude unnecessary modules
+excludes = [
+    'tkinter',
+    'unittest',
+    'email',
+    'html',
+    'http',
+    'xml',
+    'pydoc',
+    'doctest',
+    '_testcapi',
+    'distutils',
+    'pkg_resources',
+    'PIL'
+]
 
 a = Analysis(
     ['src/gui.py'],
@@ -22,11 +44,15 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=excludes,
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=None,
     noarchive=False,
 )
 
-pyz = PYZ(a.pure)
+# Enable compression
+pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
 exe = EXE(
     pyz,
@@ -38,8 +64,8 @@ exe = EXE(
     name='userchrome-loader',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
+    strip=True, # Strip symbols
+    upx=True, # Enable UPX compression
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -47,9 +73,10 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    uac_admin=False,
+    icon=None
 )
 
-# macOS specific
 if sys.platform == 'darwin':
     app = BUNDLE(
         exe,
@@ -60,5 +87,6 @@ if sys.platform == 'darwin':
             'CFBundleShortVersionString': '1.0.0',
             'CFBundleVersion': '1.0.0',
             'NSHighResolutionCapable': 'True',
+            'LSMinimumSystemVersion': '10.13.0',
         },
     )

@@ -127,9 +127,13 @@ class Main:
                 self.home_dir,
                 'Library',
                 'Application Support',
-                'zen'
+                'zen',
+                'Profiles'
             )
-            self.profiles_ini_path = os.path.join(self.zen_dir, 'profiles.ini')
+            self.profiles_ini_path = os.path.join(
+                self.zen_dir,
+                'profiles.ini'
+            )
 
         elif system == 'windows':  # Windows
             appdata = os.getenv('APPDATA')

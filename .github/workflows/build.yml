@@ -36,9 +36,23 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      # Build with PyInstaller
+      # Install UPX
+      - name: Install UPX
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            sudo apt-get install upx
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+            brew install upx
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            choco install upx
+          fi
+        shell: bash
+
+      # Build with PyInstaller using UPX compression
       - name: Build with PyInstaller
-        run: pyinstaller --clean main.spec
+        run: |
+          export OPTIMIZE=1
+          pyinstaller --clean --upx-dir=$(which upx) --noupx-exclude main.spec
 
       # Create platform-specific packages
       - name: Create AppImage (Linux)

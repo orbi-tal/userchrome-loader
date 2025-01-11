@@ -1,21 +1,43 @@
 import os
-import configparser
 import sys
 import shutil
 import re
 import platform
-from typing import cast
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
-                            QHBoxLayout, QPushButton, QLabel, QComboBox,
-                            QFileDialog, QMessageBox, QStackedWidget, QDialog,
-                            QRadioButton, QCheckBox, QListWidget)
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QLabel,
+    QComboBox,
+    QFileDialog,
+    QMessageBox,
+    QStackedWidget,
+    QDialog,
+    QRadioButton,
+    QCheckBox,
+    QListWidget
+)
+from PyQt6.QtCore import Qt, QSettings
 from main import Main as ChromeLoader
 
-class WelcomeDialog(QMainWindow):  # Changed from QDialog to QMainWindow
+OPTIMIZED = bool(os.environ.get('OPTIMIZE', False))
+
+if OPTIMIZED:
+    # Disable debug features
+    import sys
+    def excepthook(type, value, traceback):
+        pass
+    sys.excepthook = excepthook
+
+
+class WelcomeDialog(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Welcome to UserChrome Loader")
+        self.settings = QSettings('UserChromeLoader', 'UserChromeLoader')
         self.setup_ui()
 
     def setup_ui(self):
@@ -110,39 +132,20 @@ class WelcomeDialog(QMainWindow):  # Changed from QDialog to QMainWindow
         self.adjustSize()
 
     def handle_close(self):
-        """Handle window close and save preferences"""
-        self.save_preference()
-        self.close()
+            """Handle window close and save preferences"""
+            self.save_preference()
+            self.close()
 
     def save_preference(self):
         """Save the user's preference about showing the welcome dialog"""
         if self.dont_show_checkbox.isChecked():
-            config_dir = os.path.expanduser('~/.config/userchrome-loader')
-            os.makedirs(config_dir, exist_ok=True)
-
-            config_path = os.path.join(config_dir, 'preferences.ini')
-            config = configparser.ConfigParser()
-
-            if os.path.exists(config_path):
-                config.read(config_path)
-
-            if not config.has_section('Preferences'):
-                config.add_section('Preferences')
-
-            config['Preferences']['show_welcome'] = 'false'
-
-            with open(config_path, 'w', encoding='utf-8') as f:
-                config.write(f)
+            self.settings.setValue('show_welcome', False)
 
     @staticmethod
     def should_show() -> bool:
         """Check if the welcome dialog should be shown"""
-        config_path = os.path.expanduser('~/.config/userchrome-loader/preferences.ini')
-        if os.path.exists(config_path):
-            config = configparser.ConfigParser()
-            config.read(config_path)
-            return config.get('Preferences', 'show_welcome', fallback='true').lower() == 'true'
-        return True
+        settings = QSettings('UserChromeLoader', 'UserChromeLoader')
+        return settings.value('show_welcome', True, type=bool)
 
 class SubfolderDialog(QDialog):
     def __init__(self, parent=None):
@@ -304,6 +307,8 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        self._welcome_dialog = None
+        self._subfolder_dialog = None
         self.chrome_loader = ChromeLoader()
 
         # Show welcome dialog if needed
@@ -312,6 +317,18 @@ class MainWindow(QMainWindow):
             self.welcome_dialog.show()  # Show as a window instead of modal dialog
 
         self.init_ui()
+
+        @property
+        def welcome_dialog(self):
+            if self._welcome_dialog is None:
+                self._welcome_dialog = WelcomeDialog(self)
+            return self._welcome_dialog
+
+        @property
+        def subfolder_dialog(self):
+            if self._subfolder_dialog is None:
+                self._subfolder_dialog = SubfolderDialog(self)
+            return self._subfolder_dialog
 
     def init_ui(self):
         self.setWindowTitle('UserChrome Loader')
