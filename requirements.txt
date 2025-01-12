@@ -10,11 +10,6 @@ libarchive-c>=5.1
 # Network and URL handling
 pycurl>=7.45.4;
 
-# GUI dependencies (platform-specific)
-pywin32>=305; platform_system == "Windows"
-pyobjc-framework-Cocoa>=9.0; platform_system == "Darwin"
-PyGObject>=3.50.0; platform_system == "Linux"
-
 # Optional development dependencies
 pyinstaller>=6.11.1
 pyinstaller-hooks-contrib>=2024.11
