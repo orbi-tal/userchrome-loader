@@ -3,6 +3,8 @@ import sys
 import shutil
 import re
 import platform
+import pycurl
+import time
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -18,10 +20,16 @@ from PyQt6.QtWidgets import (
     QDialog,
     QRadioButton,
     QCheckBox,
-    QListWidget
+    QListWidget,
+    QLineEdit,
+    QProgressDialog
 )
 from PyQt6.QtCore import Qt, QSettings
+from urllib.parse import urlparse
+from typing import Any
+from io import BytesIO
 from main import Main as ChromeLoader
+from main import ModManager, DownloadManager, ModInfo
 
 OPTIMIZED = bool(os.environ.get('OPTIMIZE', False))
 
@@ -41,36 +49,14 @@ class WelcomeDialog(QMainWindow):
         self.setup_ui()
 
     def setup_ui(self):
-        # Create central widget and main layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
 
-        # Welcome header
         welcome_label = QLabel("Welcome to UserChrome Loader!")
         welcome_label.setStyleSheet("font-size: 18px; font-weight: bold;")
         layout.addWidget(welcome_label)
 
-        # Description
-        description = QLabel(
-            "UserChrome Loader helps you customize Zen Browser's appearance "
-            "by managing CSS modifications.\n\n"
-            "With this tool, you can:"
-        )
-        description.setWordWrap(True)
-        layout.addWidget(description)
-
-        # Features list
-        features = [
-            "• Import single CSS files or mod folders",
-            "• Manage multiple CSS customizations",
-            "• Enable/disable modifications without removing them",
-            "• Easily remove unwanted customizations"
-        ]
-        features_label = QLabel("\n".join(features))
-        layout.addWidget(features_label)
-
-        # Usage Instructions
         usage_label = QLabel("\nHow to Use:")
         usage_label.setStyleSheet("font-size: 14px; font-weight: bold;")
         layout.addWidget(usage_label)
@@ -79,18 +65,19 @@ class WelcomeDialog(QMainWindow):
             "1. Close Zen Browser before making any changes",
             "2. Select your browser profile",
             "3. Import CSS:",
-            "   • For single files: Choose 'Import CSS' → 'Single CSS File'",
-            "   • For mod folders: Choose 'Import CSS' → 'Mod Folder'",
+            "   • Single files: Choose 'Import CSS' → 'Single CSS File'",
+            "   • Mod folders: Choose 'Import CSS' → 'Mod Folder'",
+            "   • From URL: Paste GitHub, GitLab or direct CSS file links",
             "4. Manage your imports:",
             "   • Enable/disable specific modifications",
             "   • Remove unwanted customizations",
-            "5. Restart Zen Browser to see your changes"
+            "   • Check for and install updates",
+            "   • Organize mods in subfolders"
         ]
         instructions_label = QLabel("\n".join(instructions))
         instructions_label.setWordWrap(True)
         layout.addWidget(instructions_label)
 
-        # Tips Section
         tips_label = QLabel("\nTips:")
         tips_label.setStyleSheet("font-size: 14px; font-weight: bold;")
         layout.addWidget(tips_label)
@@ -99,35 +86,33 @@ class WelcomeDialog(QMainWindow):
             "• Keep backups of your original CSS files",
             "• Test one modification at a time",
             "• Use the 'Manage Imports' feature to troubleshoot issues",
+            "• Check for updates regularly to keep mods current",
+            "• Use subfolders to keep your chrome directory organized",
             "• Remember to restart the browser after each change"
         ]
         tips_label = QLabel("\n".join(tips))
         tips_label.setWordWrap(True)
         layout.addWidget(tips_label)
 
-        # Important note
         note_label = QLabel(
             "\nImportant Note: Please close Zen Browser before making any changes. "
-            "Restart Zen Browser after making modifications to see the effects."
+            "All modifications require a browser restart to take effect."
         )
         note_label.setStyleSheet("color: #d9534f;")
         note_label.setWordWrap(True)
         layout.addWidget(note_label)
 
-        # Don't show again checkbox
         self.dont_show_checkbox = QCheckBox("Don't show this message again")
         layout.addWidget(self.dont_show_checkbox)
 
-        # Continue button
         button_box = QHBoxLayout()
-        continue_button = QPushButton("Close")  # Changed from "Get Started" to "Close"
+        continue_button = QPushButton("Close")
         continue_button.setStyleSheet("padding: 6px 12px;")
         continue_button.clicked.connect(self.handle_close)
         button_box.addStretch()
         button_box.addWidget(continue_button)
         layout.addLayout(button_box)
 
-        # Set window size and position
         self.setMinimumWidth(500)
         self.adjustSize()
 
@@ -155,10 +140,8 @@ class SubfolderDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        # Add description
         layout.addWidget(QLabel("How should the files be imported?"))
 
-        # Add radio buttons
         self.direct_radio = QRadioButton("Copy directly to chrome folder")
         self.subfolder_radio = QRadioButton("Create subfolder")
         self.direct_radio.setChecked(True)
@@ -166,7 +149,6 @@ class SubfolderDialog(QDialog):
         layout.addWidget(self.direct_radio)
         layout.addWidget(self.subfolder_radio)
 
-        # Add buttons
         button_box = QHBoxLayout()
         ok_button = QPushButton("OK")
         ok_button.clicked.connect(self.accept)
@@ -193,11 +175,9 @@ class ReplaceFileDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        # Add warning message
         message = QLabel(f"Warning: '{filename}' already exists in chrome directory.\nDo you want to replace it?")
         layout.addWidget(message)
 
-        # Add buttons
         button_box = QHBoxLayout()
         yes_button = QPushButton("Yes")
         yes_button.clicked.connect(self.accept)
@@ -229,7 +209,6 @@ class RemoveAllImportsDialog(QDialog):
         message.setWordWrap(True)
         layout.addWidget(message)
 
-        # Buttons
         button_box = QHBoxLayout()
         remove_button = QPushButton("Remove All")
         remove_button.setStyleSheet("background-color: #d9534f; color: white;")
@@ -269,14 +248,12 @@ class ExistingFilesDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        # Add message and list of files
         layout.addWidget(QLabel("The following files already exist:"))
         files_list = QLabel("\n".join(f"- {f}" for f in existing_files))
         layout.addWidget(files_list)
 
         layout.addWidget(QLabel("\nHow would you like to handle existing files?"))
 
-        # Add radio buttons
         self.replace_radio = QRadioButton("Replace all")
         self.skip_radio = QRadioButton("Skip existing (keep old files)")
         self.replace_radio.setChecked(True)
@@ -284,7 +261,6 @@ class ExistingFilesDialog(QDialog):
         layout.addWidget(self.replace_radio)
         layout.addWidget(self.skip_radio)
 
-        # Add buttons
         button_box = QHBoxLayout()
         ok_button = QPushButton("OK")
         ok_button.clicked.connect(self.accept)
@@ -309,7 +285,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._welcome_dialog = None
         self._subfolder_dialog = None
+        self.last_imported_path = None
         self.chrome_loader = ChromeLoader()
+        self.chrome_loader.download_manager = DownloadManager()
 
         # Show welcome dialog if needed
         if WelcomeDialog.should_show():
@@ -430,7 +408,6 @@ class MainWindow(QMainWindow):
         # Installation type selection
         self.installation_combo = QComboBox()
 
-        # Buttons
         button_layout = QHBoxLayout()
         select_button = QPushButton("Select Installation")
         select_button.clicked.connect(self.handle_installation_selection)
@@ -470,7 +447,6 @@ class MainWindow(QMainWindow):
         profile_label = QLabel("Select Profile:")
         self.profile_combo = QComboBox()
 
-        # Buttons
         button_layout = QHBoxLayout()
         select_button = QPushButton("Select Profile")
         select_button.clicked.connect(self.handle_profile_selection)
@@ -510,47 +486,53 @@ class MainWindow(QMainWindow):
 
         self.stacked_widget.addWidget(page)
 
-
     def setup_import_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
 
-        # Import type selection
         import_label = QLabel("Select Import Type:")
         self.import_combo = QComboBox()
         self.import_combo.addItems(["Single CSS File", "Mod Folder"])
 
-        # Import button
-        import_button = QPushButton("Choose File/Folder")
+        import_button = QPushButton("Choose Local File/Folder")
         import_button.clicked.connect(self.handle_import)
 
-        # Back button
+        url_label = QLabel("Or import from URL:")
+        self.url_input = QLineEdit()
+        self.url_input.setPlaceholderText("Enter URL to CSS file or GitHub repository")
+
+        url_import_button = QPushButton("Import from URL")
+        url_import_button.clicked.connect(self.handle_url_import)
+
         back_button = QPushButton("Back to Main Menu")
         back_button.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(self.MAIN_MENU_PAGE))
 
         layout.addWidget(import_label)
         layout.addWidget(self.import_combo)
         layout.addWidget(import_button)
+        layout.addWidget(url_label)
+        layout.addWidget(self.url_input)
+        layout.addWidget(url_import_button)
         layout.addWidget(back_button)
         layout.addStretch()
 
         self.stacked_widget.addWidget(page)
-        back_button = QPushButton("Back to Main Menu")
-        back_button.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(self.MAIN_MENU_PAGE))
 
     def setup_manage_imports_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
 
-        # Import list - replace QComboBox with QListWidget
         layout.addWidget(QLabel("Current Imports:"))
-        self.import_list = QListWidget()  # Changed from QComboBox to QListWidget
-        self.import_list.setMinimumHeight(200)  # Set minimum height for better visibility
+        self.import_list = QListWidget()
+        self.import_list.setMinimumHeight(200)
         layout.addWidget(self.import_list)
 
-        # Buttons
         toggle_button = QPushButton("Toggle Selected Import")
         toggle_button.clicked.connect(self.toggle_selected_import)
+
+        update_button = QPushButton("Check for Updates")
+        update_button.clicked.connect(self.check_for_updates)
+        layout.addWidget(update_button)
 
         remove_button = QPushButton("Remove Selected Import")
         remove_button.clicked.connect(self.remove_selected_import)
@@ -568,6 +550,135 @@ class MainWindow(QMainWindow):
         layout.addStretch()
 
         self.stacked_widget.addWidget(page)
+
+    def check_for_updates(self):
+        """Check for updates for all imported mods"""
+        mod_manager = ModManager()
+        mods = mod_manager.get_all_mods()
+
+        if not mods:
+            QMessageBox.information(
+                self,
+                "Updates",
+                "No URL-imported mods found to check for updates."
+            )
+            return
+
+        progress = QProgressDialog(
+            "Checking for updates...", "Cancel", 0, len(mods), self
+        )
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+
+        updates_available = []
+        update_info = {}
+
+        for i, mod in enumerate(mods):
+            if progress.wasCanceled():
+                break
+
+            progress.setValue(i)
+            progress.setLabelText(f"Checking {mod.url}...")
+
+            try:
+                has_update, message, info = (
+                    self.chrome_loader.download_manager.check_for_updates(mod)
+                )
+
+                if has_update:
+                    updates_available.append(mod)
+                    update_info[mod.url] = info
+
+            except Exception as e:
+                print(f"Failed to check updates for {mod.url}: {e}")
+
+        progress.setValue(len(mods))
+
+        if updates_available:
+            # Create detailed update message
+            update_message = "The following mods have updates available:\n\n"
+            for mod in updates_available:
+                info = update_info[mod.url]
+                update_message += f"• {os.path.basename(mod.import_path)}\n"
+                if 'version' in info:
+                    update_message += f"  New version: {info['version']}\n"
+                if 'description' in info and info['description']:
+                    update_message += f"  {info['description']}\n"
+                update_message += "\n"
+
+            update_message += "\nWould you like to update these mods now?"
+
+            reply = QMessageBox.question(
+                self,
+                "Updates Available",
+                update_message,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+
+            if reply == QMessageBox.StandardButton.Yes:
+                self.update_mods(updates_available)
+        else:
+            QMessageBox.information(
+                self,
+                "Updates",
+                "All mods are up to date."
+            )
+
+    def update_mods(self, mods: list[ModInfo]):
+        """Update the specified mods"""
+        progress = QProgressDialog("Updating mods...", "Cancel", 0, len(mods), self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+
+        updated = []
+        failed = []
+
+        for i, mod in enumerate(mods):
+            if progress.wasCanceled():
+                break
+
+            progress.setValue(i)
+
+            try:
+                success, message, path = self.chrome_loader.download_manager.download_and_validate(mod.url)
+                if success:
+                    # Update the mod files
+                    self.import_extracted_folder(path, os.path.basename(mod.import_path), "2", [])
+                    updated.append(mod.url)
+
+                    # Update mod info
+                    last_modified, etag = self.chrome_loader.download_manager.check_for_updates(mod.url)
+                    ModManager().save_mod_info(
+                        url=mod.url,
+                        mod_info=ModInfo(
+                            url=mod.url,
+                            last_updated=mod.last_updated,
+                            etag=mod.etag,
+                            import_path=mod.import_path,
+                            version=mod.version,
+                            type=mod.type,
+                            metadata=mod.metadata
+                        )
+                    )
+                else:
+                    failed.append((mod.url, message))
+            except Exception as e:
+                failed.append((mod.url, str(e)))
+
+        progress.setValue(len(mods))
+
+        # Show results
+        message = []
+        if updated:
+            message.append(f"Successfully updated {len(updated)} mods.")
+        if failed:
+            message.append("\nFailed updates:")
+            for url, error in failed:
+                message.append(f"- {url}: {error}")
+
+        QMessageBox.information(
+            self,
+            "Update Complete",
+            "\n".join(message)
+        )
 
     def load_profiles(self):
         """Load available profiles"""
@@ -627,6 +738,317 @@ class MainWindow(QMainWindow):
             if folder_path:
                 self.handle_folder_import(folder_path)
 
+    def download_file(self, url: str, path: str) -> tuple[bool, str]:
+        """Download file using pycurl with progress"""
+        buffer = BytesIO()
+        headers: dict[str, str] = {}
+
+        def header_function(header_line):
+            header_line = header_line.decode('utf-8').strip()
+            if ':' in header_line:
+                name, value = header_line.split(':', 1)
+                headers[name.strip().lower()] = value.strip()
+
+        self.curl.setopt(pycurl.URL, url)
+        self.curl.setopt(pycurl.WRITEDATA, buffer)
+        self.curl.setopt(pycurl.HEADERFUNCTION, header_function)
+
+        try:
+            self.curl.perform()
+            return buffer.getvalue(), headers
+        finally:
+            buffer.close()
+
+    def handle_url_import(self):
+        url = self.url_input.text().strip()
+        if not url:
+            QMessageBox.warning(self, "Error", "Please enter a URL")
+            return
+
+        # Add https:// if no protocol is specified
+        if not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+
+        # Determine source type and metadata
+        source_type = 'direct'
+        metadata = {}
+
+        if 'github.com' in url:
+            source_type = 'github'
+            parts = url.split('github.com/')
+            if len(parts) == 2:
+                owner, repo = parts[1].split('/')[:2]
+                metadata = {
+                    'owner': owner,
+                    'repo': repo
+                }
+        elif 'gitlab.com' in url:
+            source_type = 'gitlab'
+            parts = url.split('gitlab.com/')
+            if len(parts) == 2:
+                project_path = parts[1].split('/')[:2]
+                metadata = {
+                    'project': '/'.join(project_path)
+                }
+
+        try:
+            success = False
+            if self.import_combo.currentIndex() == 0:  # Single CSS file
+                success = self.handle_url_single_file_import(url)
+            else:  # Mod folder
+                success = self.handle_url_folder_import(url)
+
+            if success and self.last_imported_path:
+                # Create and save mod info
+                mod_info = ModInfo(
+                    url=url,  # Store the URL with https:// if it was added
+                    last_updated=time.time(),
+                    version=None,
+                    import_path=os.path.join(self.chrome_dir, self.last_imported_path),
+                    type=source_type,
+                    metadata=metadata,
+                    etag=None
+                )
+
+                # Check for initial version/update info
+                _, _, update_info = self.chrome_loader.download_manager.check_for_updates(mod_info)
+
+                # Update mod info with version if available
+                if 'version' in update_info:
+                    mod_info.version = update_info['version']
+                if 'last_updated' in update_info:
+                    mod_info.last_updated = update_info['last_updated']
+
+                ModManager().save_mod_info(url, mod_info)
+
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to import from URL: {str(e)}")
+
+    def handle_url_single_file_import(self, url: str) -> bool:
+        """Handle importing a single CSS file from URL using pycurl"""
+        if not url.lower().endswith('.css'):
+            QMessageBox.warning(self, "Error", "URL must point to a CSS file")
+            return False
+
+        try:
+            # Initialize curl if needed
+            if not hasattr(self, 'curl'):
+                self.setup_url_handler()
+
+            content, headers = self.download_file(url)
+
+            filename = None
+            if 'content-disposition' in headers:
+                cd = headers['content-disposition']
+                if 'filename=' in cd:
+                    filename = cd.split('filename=')[1].strip('"\'')
+
+            if not filename:
+                filename = os.path.basename(urlparse(url).path.split('?')[0])
+
+            # Handle special cases
+            if filename.lower() in ['userchrome.css', 'mod.css']:
+                filename = 'mod.css'
+
+            destination = os.path.join(self.chrome_dir, filename)
+
+            # Handle filename conflicts
+            if os.path.exists(destination):
+                if not self.confirm_replace(filename):
+                    base, ext = os.path.splitext(filename)
+                    counter = 1
+                    while os.path.exists(destination):
+                        filename = f"{base}_{counter}{ext}"
+                        destination = os.path.join(self.chrome_dir, filename)
+                        counter += 1
+
+            with open(destination, 'wb') as f:
+                f.write(content)
+
+            self.update_userchrome(filename)
+            self.refresh_imports_list()
+
+            self.last_imported_path = filename
+
+            QMessageBox.information(
+                self,
+                "Success",
+                "CSS file imported successfully!\nPlease restart Zen Browser to apply changes."
+            )
+            return True
+
+        except pycurl.error as e:
+                QMessageBox.warning(self, "Error", f"Download failed: {e}")
+                return False
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Import failed: {e}")
+            return False
+
+    def handle_url_folder_import(self, url: str) -> bool:
+        """Handle importing a mod folder from URL"""
+
+        progress = QProgressDialog("Downloading and validating...", "Cancel", 0, 0, self)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+
+        try:
+            # Show subfolder preference dialog first
+            dialog = SubfolderDialog(self)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                progress.close()
+                return False
+
+            organization = dialog.get_selection()
+
+            # Show progress dialog
+            progress.show()
+
+            # Use the DownloadManager from main.py
+            download_manager = self.chrome_loader.download_manager
+            if not download_manager:
+                # Initialize if not already created
+                self.chrome_loader.download_manager = DownloadManager()
+                download_manager = self.chrome_loader.download_manager
+
+            success, message, extracted_path = download_manager.download_and_validate(url)
+
+            if not success:
+                progress.close()
+                QMessageBox.warning(self, "Error", message)
+                return False
+
+            # Get CSS files info
+            css_files = download_manager.find_css_files(extracted_path)
+
+            progress.close()
+
+            if not css_files:
+                QMessageBox.warning(self, "Error", "No CSS files found in downloaded content")
+                return False
+
+            # Import the extracted folder
+            folder_name = os.path.basename(extracted_path)
+            self.import_extracted_folder(
+                extracted_path,
+                folder_name,
+                organization,
+                css_files
+            )
+
+            # Store the last imported path
+            self.last_imported_path = folder_name if organization == "2" else "mod.css"
+
+            # Cleanup temporary files
+            if download_manager.temp_dir:
+                try:
+                    import shutil
+                    shutil.rmtree(download_manager.temp_dir)
+                    download_manager.temp_dir = None
+                except Exception as e:
+                    print(f"Warning: Failed to clean up temporary directory: {e}")
+
+            return True
+
+        except Exception as e:
+            progress.close()
+            QMessageBox.warning(self, "Error", f"Import failed: {str(e)}")
+            return False
+
+    def update_userchrome(self, filename: str):
+        """Update userChrome.css with new import"""
+        userchrome_path = os.path.join(self.chrome_dir, 'userChrome.css')
+        import_line = f"@import url('{filename}');\n"
+
+        existing_content = ""
+        if os.path.exists(userchrome_path):
+            with open(userchrome_path, 'r', encoding='utf-8') as f:
+                existing_content = f.read()
+
+        if not any(import_line.strip() in line for line in existing_content.splitlines()):
+            if existing_content and not existing_content.endswith('\n'):
+                existing_content += '\n'
+            existing_content += import_line
+
+            with open(userchrome_path, 'w', encoding='utf-8') as f:
+                f.write(existing_content)
+
+    def import_extracted_folder(self, source_dir: str, folder_name: str, organization: str, css_files: list[dict[str, Any]]):
+        """Import files from extracted folder"""
+        destination = os.path.join(self.chrome_dir, folder_name) if organization == "2" else self.chrome_dir
+
+        try:
+            # Create destination directory if it doesn't exist
+            os.makedirs(destination, exist_ok=True)
+
+            # Track imported files and main CSS file
+            imported_files = []
+            import_line = None
+
+            # Process all CSS files
+            for css_file in css_files:
+                if css_file['is_main']:
+                    # Handle main CSS file (userChrome.css or mod.css)
+                    target_mod = os.path.join(destination, 'mod.css')
+                    shutil.copy2(css_file['path'], target_mod)
+                    imported_files.append(os.path.relpath(target_mod, self.chrome_dir))
+
+                    # Create import line
+                    if organization == "2":
+                        import_line = f"@import url('{folder_name}/mod.css');\n"
+                    else:
+                        import_line = "@import url('mod.css');\n"
+                else:
+                    # Handle regular CSS files
+                    rel_path = css_file['relative_path']
+                    target_dir = os.path.join(destination, os.path.dirname(rel_path))
+                    os.makedirs(target_dir, exist_ok=True)
+
+                    target_file = os.path.join(destination, rel_path)
+                    shutil.copy2(css_file['path'], target_file)
+                    imported_files.append(os.path.relpath(target_file, self.chrome_dir))
+
+            # Update userChrome.css if we have an import line
+            if import_line:
+                userchrome_path = os.path.join(self.chrome_dir, 'userChrome.css')
+                existing_content = ""
+                if os.path.exists(userchrome_path):
+                    with open(userchrome_path, 'r', encoding='utf-8') as f:
+                        existing_content = f.read()
+
+                if not any(import_line.strip() in line for line in existing_content.splitlines()):
+                    if existing_content and not existing_content.endswith('\n'):
+                        existing_content += '\n'
+                    existing_content += import_line
+
+                    with open(userchrome_path, 'w', encoding='utf-8') as f:
+                        f.write(existing_content)
+
+            # Refresh the imports list
+            self.refresh_imports_list()
+
+            # Show summary message
+            if imported_files:
+                message = "Files imported:\n" + "\n".join(f"- {f}" for f in imported_files)
+                if import_line:
+                    message += "\n\nMod folder imported successfully!"
+                else:
+                    message += "\n\nNote: No main CSS file (userChrome.css or mod.css) found."
+                message += "\n\nPlease restart Zen Browser to apply changes."
+
+                QMessageBox.information(
+                    self,
+                    "Import Complete",
+                    message
+                )
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Warning",
+                    "No files were imported."
+                )
+
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to import files: {str(e)}")
+
     def handle_existing_files(self, existing_files: list[str]) -> str | None:
         """Show dialog for handling existing files"""
         dialog = ExistingFilesDialog(existing_files, self)
@@ -635,12 +1057,10 @@ class MainWindow(QMainWindow):
         return None
 
     def confirm_replace(self, filename: str) -> bool:
-        """Show dialog to confirm file replacement"""
         dialog = ReplaceFileDialog(filename, self)
         return dialog.exec() == QDialog.DialogCode.Accepted
 
     def get_file_path(self) -> str | None:
-        """Get file path using Qt file dialog"""
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select CSS File",
@@ -917,7 +1337,6 @@ class MainWindow(QMainWindow):
             # Refresh the display
             self.refresh_imports_list()
 
-            # Show success message
             status = "disabled" if is_enabled else "enabled"
             QMessageBox.information(
                 self,
@@ -1027,7 +1446,7 @@ class MainWindow(QMainWindow):
                     "Failed to remove imports. Please check the console for details."
                 )
 
-    def cleanup_empty_folders(self, directory):
+    def cleanup_empty_folders(self, directory: str) -> None:
         """Recursively remove empty folders"""
         for root, dirs, files in os.walk(directory, topdown=False):
             for dirname in dirs:

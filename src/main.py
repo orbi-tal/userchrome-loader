@@ -2,25 +2,552 @@
 Provides a User-Friendly way to load Userchrome Scripts for Zen Browser
 """
 
-from pathlib import Path
 import os
 import sys
 import configparser
 import re
-import subprocess
 import platform
 import shutil
+import pycurl
+import tempfile
+import json
+import libarchive.public as la
+from datetime import datetime
+from pathlib import Path
+from urllib.parse import urlparse
 from dataclasses import dataclass
-from typing import TypeAlias, Final
+from typing import TypeAlias, Final, Any
 from typing_extensions import TypeGuard
 from collections.abc import Mapping
+from io import BytesIO
+from PyQt6.QtCore import QSettings
 
-# Type aliases
 ProfileDict: TypeAlias = dict[str, str | bool]
 StrDict: TypeAlias = dict[str, str]
 StrList: TypeAlias = list[str]
 StrSet: TypeAlias = set[str]
 Installation = tuple[str, str]
+
+@dataclass
+class ModInfo:
+    url: str
+    last_updated: float
+    version: str | None
+    import_path: str
+    type: str
+    metadata: dict[str, Any]
+    etag: str | None
+
+class DownloadManager:
+    """Handles file downloads and validation"""
+    ALLOWED_EXTENSIONS = {
+            '.css', '.png', '.jpg', '.jpeg', '.gif',
+            '.svg', '.webp', '.ttf', '.otf', '.woff',
+            '.woff2', '.eot', '.ico'
+        }
+
+    def __init__(self):
+        self.temp_dir = None
+        self.curl = pycurl.Curl()
+        self.setup_curl()
+
+    def setup_curl(self):
+        """Initialize curl with default settings"""
+        self.curl.setopt(pycurl.FOLLOWLOCATION, 1)
+        self.curl.setopt(pycurl.MAXREDIRS, 5)
+        self.curl.setopt(pycurl.TIMEOUT, 300)
+        self.curl.setopt(pycurl.HTTPHEADER, [
+            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language: en-US,en;q=0.5',
+            'Accept-Encoding: gzip, deflate, br',
+            'Connection: keep-alive',
+        ])
+
+    def cleanup(self):
+        if self.curl:
+            self.curl.close()
+        if self.temp_dir:
+            try:
+                import shutil
+                shutil.rmtree(self.temp_dir)
+            except Exception as e:
+                print(f"Warning: Failed to clean up temporary directory: {e}")
+
+    def validate_url(self, url: str) -> bool:
+        try:
+            # Add https:// if no protocol is specified
+            if not url.startswith(('http://', 'https://')):
+                url = 'https://' + url
+
+            parsed = urlparse(url)
+            if not all([parsed.scheme, parsed.netloc]):
+                return False
+
+            # Add supported domains here
+            supported_domains = {
+                'raw.githubusercontent.com',
+                'gitlab.com',
+                'bitbucket.org',
+                # Add more supported domains as needed
+            }
+
+            domain = parsed.netloc.lower()
+            if not any(domain.endswith(d) for d in supported_domains):
+                # Check file extension for direct downloads
+                valid_extensions = {'.zip', '.rar', '.7z', '.tar', '.gz', '.tgz', '.bz2', '.xz'}
+                return any(parsed.path.lower().endswith(ext) for ext in valid_extensions)
+
+            return True
+        except Exception:
+            return False
+
+    def download_and_validate(self, url: str) -> tuple[bool, str, str]:
+        """
+        Download and validate content from URL
+        Returns: (success, message, extracted_path)
+        """
+        try:
+            # Create temporary directory
+            self.temp_dir = tempfile.mkdtemp(prefix='ucloader_')
+
+            # Check if it's a GitHub URL
+            if 'github.com' in url:
+                return self.handle_github_url(url)
+
+            # Validate other URLs
+            if not self.validate_url(url):
+                return False, "Invalid or unsupported URL", ""
+
+            # Handle direct download for archives
+            archive_path = os.path.join(self.temp_dir, 'archive')
+            success, message = self.download_file(url, archive_path)
+            if not success:
+                return False, message, ""
+
+            # Extract and validate archive
+            extract_path = os.path.join(self.temp_dir, 'extracted')
+            success, message, final_path = self.process_archive(archive_path, extract_path)
+            if not success:
+                return False, message, ""
+
+            # Validate content
+            css_files = self.find_css_files(final_path)
+            if not css_files:
+                return False, "No CSS files found in downloaded content", ""
+
+            return True, "Download and validation successful", final_path
+
+        except Exception as e:
+            return False, f"Download failed: {str(e)}", ""
+
+    def download_file(self, url: str, path: str) -> tuple[bool, str]:
+        """Download file"""
+        buffer = BytesIO()
+        try:
+            self.curl.setopt(pycurl.URL, url)
+            self.curl.setopt(pycurl.WRITEDATA, buffer)
+            self.curl.perform()
+
+            with open(path, 'wb') as f:
+                f.write(buffer.getvalue())
+            return True, "Success"
+        except Exception as e:
+            return False, str(e)
+        finally:
+            buffer.close()
+
+    def handle_github_url(self, url: str) -> tuple[bool, str, str]:
+        """Handle GitHub repository or file downloads"""
+        if self.temp_dir is None:
+                self.temp_dir = tempfile.mkdtemp(prefix='ucloader_')
+
+        try:
+            # Parse GitHub URL
+            parts = url.split('github.com/')
+            if len(parts) != 2:
+                return False, "Invalid GitHub URL", ""
+
+            path_parts = parts[1].split('/')
+            if len(path_parts) < 2:
+                return False, "Invalid GitHub repository path", ""
+
+            owner = path_parts[0]
+            repo = path_parts[1]
+
+            # Create temporary directory if not exists
+            if not self.temp_dir:
+                self.temp_dir = tempfile.mkdtemp(prefix='ucloader_')
+
+            # Determine if it's a file or repository
+            if len(path_parts) > 4 and path_parts[2] in ('blob', 'tree'):
+                # It's a file or directory within the repository
+                branch = path_parts[3]
+                file_path = '/'.join(path_parts[4:])
+
+                # Convert blob URL to raw URL for single files
+                if path_parts[2] == 'blob':
+                    raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{file_path}"
+                    download_path = os.path.join(self.temp_dir, os.path.basename(file_path))
+                    success, message = self.download_file(raw_url, download_path)
+                    if not success:
+                        return False, message, ""
+                    return True, "File downloaded successfully", self.temp_dir
+
+            # Default to downloading the repository
+            download_url = f"https://api.github.com/repos/{owner}/{repo}/zipball"
+            archive_path = os.path.join(self.temp_dir, 'repo.zip')
+
+            # Download repository
+            success, message = self.download_file(download_url, archive_path)
+            if not success:
+                return False, message, ""
+
+            # Extract the archive
+            extract_path = os.path.join(self.temp_dir, 'extracted')
+            success, message, final_path = self.process_archive(archive_path, extract_path)
+            if not success:
+                return False, message, ""
+
+            return True, "Repository downloaded successfully", final_path
+
+        except Exception as e:
+            return False, f"Failed to process GitHub URL: {str(e)}", ""
+
+    def process_archive(self, archive_path: str, extract_path: str) -> tuple[bool, str, str]:
+        """Extract and validate archive"""
+        try:
+            os.makedirs(extract_path, exist_ok=True)
+
+            # Extract archive
+            self.extract_archive(archive_path, extract_path)
+
+            # Validate extracted content
+            if not self.validate_extracted_content(extract_path):
+                return False, "Content validation failed", ""
+
+            # Find main directory
+            items = os.listdir(extract_path)
+            if len(items) == 1 and os.path.isdir(os.path.join(extract_path, items[0])):
+                final_path = os.path.join(extract_path, items[0])
+            else:
+                final_path = extract_path
+
+            return True, "Archive processed successfully", final_path
+
+        except Exception as e:
+            return False, f"Archive processing failed: {str(e)}", ""
+
+    def extract_archive(self, archive_path: str, extract_path: str):
+        """Extract archive using libarchive"""
+
+        ALLOWED_EXTENSIONS = {
+            '.css', '.png', '.jpg', '.jpeg', '.gif',
+            '.svg', '.webp', '.ttf', '.otf', '.woff',
+            '.woff2', '.eot', '.ico'
+        }
+        try:
+            with la.file_reader(archive_path) as archive:
+                for entry in archive:
+                    # Security checks
+                    path = entry.pathname
+                    if path.startswith(('/', '\\')) or '..' in path:
+                        continue
+
+                    # Check file extension
+                    ext = os.path.splitext(path)[1].lower()
+                    if ext not in ALLOWED_EXTENSIONS:
+                        continue
+
+                    target_path = os.path.join(extract_path, path)
+                    target_dir = os.path.dirname(target_path)
+
+                    try:
+                        os.makedirs(target_dir, exist_ok=True)
+                        with open(target_path, 'wb') as f:
+                            for block in entry.get_blocks():
+                                f.write(block)
+                    except (OSError, IOError) as e:
+                        print(f"Warning: Failed to extract {path}: {e}")
+                        continue
+
+        except ImportError:
+            # Fallback to zipfile for basic ZIP support
+            import zipfile
+            if zipfile.is_zipfile(archive_path):
+                with zipfile.ZipFile(archive_path, 'r') as zip_ref:
+                    for member in zip_ref.namelist():
+                        # Security checks
+                        if member.startswith(('/', '\\')) or '..' in member:
+                            continue
+
+                        # Check file extension
+                        ext = os.path.splitext(member)[1].lower()
+                        if ext not in ALLOWED_EXTENSIONS:
+                            continue
+
+                        try:
+                            zip_ref.extract(member, extract_path)
+                        except Exception as e:
+                            print(f"Warning: Failed to extract {member}: {e}")
+                            continue
+            else:
+                raise Exception("Archive format not supported. Please use ZIP format or install libarchive-c")
+
+        except Exception as e:
+            raise Exception(f"Failed to extract archive: {str(e)}")
+
+    def validate_extracted_content(self, path: str) -> bool:
+        """Validate extracted content"""
+        MAX_TOTAL_SIZE = 100 * 1024 * 1024  # 100MB
+        MAX_FILES = 1000
+
+        total_size = 0
+        file_count = 0
+
+        for root, _, files in os.walk(path):
+            file_count += len(files)
+            if file_count > MAX_FILES:
+                return False
+
+            for file in files:
+                file_path = os.path.join(root, file)
+                try:
+                    size = os.path.getsize(file_path)
+                    total_size += size
+                    if total_size > MAX_TOTAL_SIZE:
+                        return False
+                except OSError:
+                    continue
+
+        return file_count > 0
+
+    def find_css_files(self, path: str) -> list[dict[str, Any]]:
+        """Find and validate CSS files"""
+        css_files: list[dict[str, Any]] = []
+        MAX_CSS_SIZE = 1 * 1024 * 1024  # 1MB
+
+        for root, _, files in os.walk(path):
+            for file in files:
+                if not file.lower().endswith('.css'):
+                    continue
+
+                file_path = os.path.join(root, file)
+                try:
+                    size = os.path.getsize(file_path)
+                    if size > MAX_CSS_SIZE:
+                        continue
+
+                    css_files.append({
+                        'path': file_path,
+                        'relative_path': os.path.relpath(file_path, path),
+                        'name': file,
+                        'is_main': file.lower() in ['userchrome.css', 'mod.css'],
+                        'size': size
+                    })
+                except OSError:
+                    continue
+
+        return css_files
+
+    def check_for_updates(self, mod_info: ModInfo) -> tuple[bool, str, dict[str, Any]]:
+        """Check if updates are available for a mod
+        Returns: (has_update, message, update_info)
+        """
+        if mod_info.type == 'github':
+            return self._check_github_updates(mod_info)
+        elif mod_info.type == 'gitlab':
+            return self._check_gitlab_updates(mod_info)
+        else:
+            return self._check_direct_updates(mod_info)
+
+    def _check_github_updates(self, mod_info: ModInfo) -> tuple[bool, str, dict[str, Any]]:
+        """Check for updates on GitHub repository"""
+        try:
+            # Extract owner and repo from URL
+            parts = mod_info.url.split('github.com/')
+            if len(parts) != 2:
+                return False, "Invalid GitHub URL", {}
+
+            owner, repo = parts[1].split('/')[:2]
+            api_url = f"https://api.github.com/repos/{owner}/{repo}"
+
+            # Set up curl request
+            buffer = BytesIO()
+            self.curl.setopt(pycurl.URL, api_url)
+            self.curl.setopt(pycurl.WRITEDATA, buffer)
+
+            # Add headers for GitHub API
+            self.curl.setopt(pycurl.HTTPHEADER, [
+                'Accept: application/vnd.github.v3+json',
+                'User-Agent: UserChromeLoader'
+            ])
+
+            self.curl.perform()
+
+            # Parse response
+            response = json.loads(buffer.getvalue().decode('utf-8'))
+
+            latest_update = response.get('pushed_at')
+            if not latest_update:
+                return False, "Could not determine latest update", {}
+
+            # Convert to timestamp for comparison
+            latest_timestamp = datetime.strptime(
+                latest_update, '%Y-%m-%dT%H:%M:%SZ'
+            ).timestamp()
+
+            has_update = latest_timestamp > mod_info.last_updated
+
+            return has_update, (
+                "Update available" if has_update else "Up to date"
+            ), {
+                'version': response.get('default_branch'),
+                'last_updated': latest_timestamp,
+                'description': response.get('description', '')
+            }
+
+        except Exception as e:
+            return False, f"Failed to check for updates: {str(e)}", {}
+
+    def _check_gitlab_updates(self, mod_info: ModInfo) -> tuple[bool, str, dict[str, Any]]:
+        """Check for updates on GitLab repository"""
+        try:
+            # Extract project info from URL
+            parts = mod_info.url.split('gitlab.com/')
+            if len(parts) != 2:
+                return False, "Invalid GitLab URL", {}
+
+            project_path = parts[1].split('/')
+            if len(project_path) < 2:
+                return False, "Invalid GitLab project path", {}
+
+            # Construct API URL
+            project_id = '/'.join(project_path[:2])
+            api_url = f"https://gitlab.com/api/v4/projects/{project_id.replace('/', '%2F')}"
+
+            # Set up curl request
+            buffer = BytesIO()
+            self.curl.setopt(pycurl.URL, api_url)
+            self.curl.setopt(pycurl.WRITEDATA, buffer)
+
+            # Add headers for GitLab API
+            self.curl.setopt(pycurl.HTTPHEADER, [
+                'Accept: application/json',
+                'User-Agent: UserChromeLoader'
+            ])
+
+            self.curl.perform()
+
+            # Parse response
+            response = json.loads(buffer.getvalue().decode('utf-8'))
+
+            last_activity = response.get('last_activity_at')
+            if not last_activity:
+                return False, "Could not determine latest update", {}
+
+            # Convert to timestamp for comparison
+            latest_timestamp = datetime.strptime(
+                last_activity, '%Y-%m-%dT%H:%M:%S.%fZ'
+            ).timestamp()
+
+            has_update = latest_timestamp > mod_info.last_updated
+
+            return has_update, (
+                "Update available" if has_update else "Up to date"
+            ), {
+                'version': response.get('default_branch'),
+                'last_updated': latest_timestamp,
+                'description': response.get('description', '')
+            }
+
+        except Exception as e:
+            return False, f"Failed to check for updates: {str(e)}", {}
+
+    def _check_direct_updates(self, mod_info: ModInfo) -> tuple[bool, str, dict[str, Any]]:
+        """Check for updates on direct file URLs"""
+        try:
+            buffer = BytesIO()
+            self.curl.setopt(pycurl.URL, mod_info.url)
+            self.curl.setopt(pycurl.NOBODY, 1)
+            self.curl.setopt(pycurl.WRITEDATA, buffer)
+            self.curl.perform()
+
+            # Get last modified time
+            last_modified = self.curl.getinfo(pycurl.INFO_FILETIME)
+
+            # Reset curl options
+            self.curl.setopt(pycurl.NOBODY, 0)
+
+            if last_modified == -1:  # No last-modified header
+                return False, "Could not determine file age", {}
+
+            has_update = last_modified > mod_info.last_updated
+
+            return has_update, (
+                "Update available" if has_update else "Up to date"
+            ), {
+                'last_updated': last_modified
+            }
+
+        except Exception as e:
+            return False, f"Failed to check for updates: {str(e)}", {}
+
+class ModManager:
+    def __init__(self):
+        self.settings = QSettings('UserChromeLoader', 'UserChromeLoader')
+
+    def save_mod_info(self, url: str, mod_info: ModInfo) -> None:
+        """Save information about an imported mod"""
+        mods = self.settings.value('imported_mods', {}, dict)
+        mods[url] = {
+            'last_updated': mod_info.last_updated,
+            'version': mod_info.version,
+            'import_path': mod_info.import_path,
+            'type': mod_info.type,
+            'metadata': mod_info.metadata,
+            'etag': mod_info.etag
+        }
+        self.settings.setValue('imported_mods', mods)
+
+    def get_mod_info(self, url: str) -> ModInfo | None:
+        """Get information about an imported mod"""
+        mods = self.settings.value('imported_mods', {}, dict)
+        if url in mods:
+            info = mods[url]
+            return ModInfo(
+                url=url,
+                last_updated=info['last_updated'],
+                etag=info.get('etag'),
+                import_path=info['import_path'],
+                version=info.get('version'),
+                type=info.get('type', 'direct'),  # Default to 'direct' if not specified
+                metadata=info.get('metadata', {})  # Default to empty dict if not specified
+            )
+        return None
+
+    def get_all_mods(self) -> list[ModInfo]:
+        """Get information about all imported mods"""
+        mods = self.settings.value('imported_mods', {}, dict)
+        return [
+            ModInfo(
+                url=url,
+                last_updated=info['last_updated'],
+                etag=info.get('etag'),
+                import_path=info['import_path'],
+                version=info.get('version'),
+                type=info.get('type', 'direct'),  # Default to 'direct' if not specified
+                metadata=info.get('metadata', {})  # Default to empty dict if not specified
+            )
+            for url, info in mods.items()
+        ]
+
+    def remove_mod(self, url: str):
+        """Remove a mod from the tracked mods"""
+        mods = self.settings.value('imported_mods', {}, dict)
+        if url in mods:
+            del mods[url]
+            self.settings.setValue('imported_mods', mods)
 
 @dataclass
 class FileOperationResult:
@@ -34,11 +561,14 @@ class Main:
     MAX_FILE_SIZE: Final[int] = 10 * 1024 * 1024  # 10MB
 
     def __init__(self, installation_type: str | None = None) -> None:
+        self.curl = None
         self.home_dir: str = str(Path.home())
         self.zen_dir: str = ""
         self.profiles_ini_path: str = ""
         self.imported_files: set[str] = set()
         self.installation_type: str | None = installation_type
+        self.download_manager: DownloadManager | None = None
+        self.temp_dir: str | None = None
 
     def is_valid_profile(self, profile: Mapping[str, str]) -> TypeGuard[ProfileDict]:
         """Type guard to validate profile structure"""
@@ -119,7 +649,6 @@ class Main:
                 print("Please enter a number.")
 
     def setup_paths(self):
-        """Set up paths based on OS and installation type"""
         system = platform.system().lower()
 
         if system == 'darwin':  # macOS
@@ -461,6 +990,13 @@ class Main:
         """This will be handled by the GUI folder dialog"""
         return None  # Actual folder selection is handled in GUI
 
+    def setup_url_handler(self, url: str, buffer: BytesIO):
+        if not self.curl:
+            self.curl = pycurl.Curl()
+        self.curl.setopt(pycurl.URL, url)
+        self.curl.setopt(pycurl.WRITEDATA, buffer)
+        self.curl.setopt(pycurl.USERAGENT, 'UserChromeLoader/1.0')
+
     def handle_single_file_import(self, chrome_dir: str) -> str | None:
         """Handle importing a single CSS file"""
         css_file = self.get_file_path()
@@ -551,6 +1087,83 @@ class Main:
         print("No userChrome.css or mod.css found in selected folder")
         return None
 
+    def handle_github_url(self, url: str) -> tuple[bool, str, str]:
+        """Handle GitHub repository or file downloads"""
+        try:
+            # Parse GitHub URL
+            parts = url.split('github.com/')
+            if len(parts) != 2:
+                return False, "Invalid GitHub URL", ""
+
+            path_parts = parts[1].split('/')
+            if len(path_parts) < 2:
+                return False, "Invalid GitHub repository path", ""
+
+            owner = path_parts[0]
+            repo = path_parts[1]
+
+            # Determine if it's a file or repository
+            if len(path_parts) > 4 and path_parts[2] in ('blob', 'tree'):
+                # It's a file or directory within the repository
+                branch = path_parts[3]
+                file_path = '/'.join(path_parts[4:])
+
+                # Convert blob URL to raw URL for single files
+                if path_parts[2] == 'blob':
+                    raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{file_path}"
+                    download_path = os.path.join(self.temp_dir, os.path.basename(file_path))
+                    success, message = self.download_file(raw_url, download_path)
+                    if not success:
+                        return False, message, ""
+                    return True, "File downloaded successfully", self.temp_dir
+
+            # Default to downloading the repository
+            download_url = f"https://api.github.com/repos/{owner}/{repo}/zipball"
+            archive_path = os.path.join(self.temp_dir, 'repo.zip')
+
+            # Download repository
+            success, message = self.download_file(download_url, archive_path)
+            if not success:
+                return False, message, ""
+
+            # Extract the archive
+            extract_path = os.path.join(self.temp_dir, 'extracted')
+            success, message, final_path = self.process_archive(archive_path, extract_path)
+            if not success:
+                return False, message, ""
+
+            return True, "Repository downloaded successfully", final_path
+
+        except Exception as e:
+            return False, f"Failed to process GitHub URL: {str(e)}", ""
+
+    def download_github_contents(self, url: str) -> None:
+        """Download and process GitHub repository contents"""
+        try:
+            owner, repo, branch, subpath = self.parse_github_url(url)
+            repo_dir = None
+
+            # Ensure temp_dir exists and is a string
+            if not self.temp_dir or not isinstance(self.temp_dir, str):
+                self.temp_dir = tempfile.mkdtemp(prefix='ucloader_')
+
+            # First try using pygit2
+            try:
+                import pygit2
+                repo_dir = self._clone_with_pygit2(owner, repo, branch, subpath)
+            except ImportError:
+                # Fall back to GitPython
+                try:
+                    from git import Repo
+                    repo_dir = self._clone_with_gitpython(owner, repo, branch, subpath)
+                except ImportError:
+                    # Fall back to direct download
+                    repo_dir = self._download_github_archive(owner, repo, branch, subpath)
+
+            return repo_dir
+        except Exception as e:
+            raise RuntimeError(f"Failed to download repository: {e}")
+
     def process_files(self, source: str, dest: str, response: str) -> FileOperationResult:
         """Process CSS files during copy operation"""
         try:
@@ -578,6 +1191,41 @@ class Main:
 
         except Exception as e:
             return FileOperationResult(success=False, message=f"Error processing files: {e}")
+
+
+    def download_file(self, url: str, save_path: str) -> tuple[bool, str]:
+        """Download file from URL"""
+        buffer = BytesIO()
+        try:
+            self.curl.setopt(pycurl.URL, url)
+            self.curl.setopt(pycurl.WRITEDATA, buffer)
+            self.curl.perform()
+
+            response_code = self.curl.getinfo(pycurl.RESPONSE_CODE)
+            if response_code != 200:
+                return False, f"Download failed with HTTP {response_code}"
+
+            with open(save_path, 'wb') as f:
+                f.write(buffer.getvalue())
+
+            return True, "Download successful"
+
+        except pycurl.error as e:
+            return False, f"Download error: {str(e)}"
+        finally:
+            buffer.close()
+
+    def process_archive(self, archive_path: str, extract_path: str) -> tuple[bool, str, str]:
+        """Process downloaded archive"""
+        try:
+            os.makedirs(extract_path, exist_ok=True)
+            # Extract archive using libarchive
+            with la.file_reader(archive_path) as archive:
+                for entry in archive:
+                    la.extract.extract_entries([entry], extract_path)
+            return True, "Success", extract_path
+        except Exception as e:
+            return False, str(e), ""
 
     def process_css_file(self, src_file: str, dest_file: str, response: str) -> bool:
         """Process a single CSS file during copy operation"""
@@ -644,7 +1292,7 @@ class Main:
             print(f"Error setting up chrome directory: {e}")
             return None
 
-    def write_userchrome_content(self, file_path: str, content: str, _mode: str = 'w') -> bool:
+    def write_userchrome_content(self, file_path: str, content: str) -> bool:
         """Write content to userChrome.css file"""
         try:
             with open(file_path, 'w', encoding='utf-8') as f:
