@@ -120,7 +120,6 @@ def remove_linux_libraries(binaries):
         return binaries
 
     exclude_patterns = [
-        'libicu',
         'libmysqlclient',
         'libodbc',
         'libpq',
