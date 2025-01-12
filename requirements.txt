@@ -1,17 +1,20 @@
 # Core dependencies
-typing-extensions>=4.12.2
-setuptools>=75.2.0
+typing_extensions>=4.12.2
+setuptools>=75.7.0
 PyQt6>=6.8.0
 PyQt6-sip>=13.9.1
 
-# Binary packages with wheels (includes native libraries)
-pycurl-binary>=7.45.3; platform_system == "Windows"  # Windows-specific wheel
-pycurl>=7.45.3; platform_system != "Windows"  # Unix systems use system curl
-libarchive-c-wheel>=5.0  # Includes libarchive binaries for all platforms
+# Archive handling
+libarchive-c>=5.1
+
+# Network and URL handling
+pycurl>=7.45.4;
 
 # GUI dependencies (platform-specific)
 pywin32>=305; platform_system == "Windows"
 pyobjc-framework-Cocoa>=9.0; platform_system == "Darwin"
+PyGObject>=3.50.0; platform_system == "Linux"
 
-# Optional Linux dependencies - install manually or through system package manager
-# PyGObject>=3.50.0; platform_system == "Linux"
+# Optional development dependencies
+pyinstaller>=6.11.1
+pyinstaller-hooks-contrib>=2024.11
