@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSettings
 from urllib.parse import urlparse
 from typing import Any
+from collections.abc import Mapping
 from io import BytesIO
 from main import Main as ChromeLoader
 from main import ModManager, DownloadManager, ModInfo
@@ -287,7 +288,7 @@ class MainWindow(QMainWindow):
         self._subfolder_dialog = None
         self.last_imported_path = None
         self.chrome_loader = ChromeLoader()
-        self.chrome_loader.download_manager = DownloadManager()
+        self.download_manager: DownloadManager = DownloadManager()
 
         # Show welcome dialog if needed
         if WelcomeDialog.should_show():
@@ -531,7 +532,7 @@ class MainWindow(QMainWindow):
         toggle_button.clicked.connect(self.toggle_selected_import)
 
         update_button = QPushButton("Check for Updates")
-        update_button.clicked.connect(self.check_for_updates)
+        update_button.clicked.connect(self.download_manager.check_for_updates)
         layout.addWidget(update_button)
 
         remove_button = QPushButton("Remove Selected Import")
@@ -581,7 +582,7 @@ class MainWindow(QMainWindow):
 
             try:
                 has_update, message, info = (
-                    self.chrome_loader.download_manager.check_for_updates(mod)
+                    self.download_manager.check_for_updates(mod)
                 )
 
                 if has_update:
@@ -625,6 +626,13 @@ class MainWindow(QMainWindow):
 
     def update_mods(self, mods: list[ModInfo]):
         """Update the specified mods"""
+        if not self.download_manager:
+                print("Error: Download manager not initialized")
+                return
+
+        for mod in mods:
+            success, message, path = self.download_manager.download_and_validate(mod.url)
+
         progress = QProgressDialog("Updating mods...", "Cancel", 0, len(mods), self)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
 
@@ -638,14 +646,17 @@ class MainWindow(QMainWindow):
             progress.setValue(i)
 
             try:
-                success, message, path = self.chrome_loader.download_manager.download_and_validate(mod.url)
+                success, message, path = self.download_manager.download_and_validate(mod.url)
                 if success:
                     # Update the mod files
                     self.import_extracted_folder(path, os.path.basename(mod.import_path), "2", [])
                     updated.append(mod.url)
 
                     # Update mod info
-                    last_modified, etag = self.chrome_loader.download_manager.check_for_updates(mod.url)
+                    has_update, message, update_info = self.download_manager.check_for_updates(mod)
+                    if has_update:
+                        last_updated = update_info.get('last_updated')
+                        etag = update_info.get('etag')
                     ModManager().save_mod_info(
                         url=mod.url,
                         mod_info=ModInfo(
@@ -738,7 +749,7 @@ class MainWindow(QMainWindow):
             if folder_path:
                 self.handle_folder_import(folder_path)
 
-    def download_file(self, url: str, path: str) -> tuple[bool, str]:
+    def download_file(self, url: str, path: str | None = None) -> tuple[bytes, dict[str, str]]:
         """Download file using pycurl with progress"""
         buffer = BytesIO()
         headers: dict[str, str] = {}
@@ -759,7 +770,11 @@ class MainWindow(QMainWindow):
         finally:
             buffer.close()
 
-    def handle_url_import(self):
+    def handle_url_import(self) -> None:
+        if not self.download_manager:
+                print("Error: Download manager not initialized")
+                return
+
         url = self.url_input.text().strip()
         if not url:
             QMessageBox.warning(self, "Error", "Please enter a URL")
@@ -811,7 +826,19 @@ class MainWindow(QMainWindow):
                 )
 
                 # Check for initial version/update info
-                _, _, update_info = self.chrome_loader.download_manager.check_for_updates(mod_info)
+                __, _, update_info = self.download_manager.check_for_updates(mod_info)
+
+                # When checking a URL directly, create a temporary ModInfo object:
+                temp_mod = ModInfo(
+                    url=url,
+                    last_updated=0,  # Set to 0 to force update check
+                    version=None,
+                    import_path="",
+                    type="direct",
+                    metadata={},
+                    etag=None
+                )
+                _, _, update_info = self.download_manager.check_for_updates(temp_mod)
 
                 # Update mod info with version if available
                 if 'version' in update_info:
@@ -941,11 +968,11 @@ class MainWindow(QMainWindow):
             if download_manager.temp_dir:
                 try:
                     import shutil
-                    shutil.rmtree(download_manager.temp_dir)
+                    temp_dir = download_manager.temp_dir
+                    shutil.rmtree(temp_dir)
                     download_manager.temp_dir = None
                 except Exception as e:
                     print(f"Warning: Failed to clean up temporary directory: {e}")
-
             return True
 
         except Exception as e:

@@ -20,6 +20,7 @@ wheels/
 .installed.cfg
 *.egg
 .ropeproject/
+pyrightconfig.json
 
 # Virtual Environment
 venv/

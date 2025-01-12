@@ -3,8 +3,11 @@ typing-extensions>=4.12.2
 setuptools>=75.2.0
 PyQt6>=6.8.0
 PyQt6-sip>=13.9.1
-pycurl>=7.45.3
-libarchive-c>=5.0
+
+# Binary packages with wheels (includes native libraries)
+pycurl-binary>=7.45.3; platform_system == "Windows"  # Windows-specific wheel
+pycurl>=7.45.3; platform_system != "Windows"  # Unix systems use system curl
+libarchive-c-wheel>=5.0  # Includes libarchive binaries for all platforms
 
 # GUI dependencies (platform-specific)
 pywin32>=305; platform_system == "Windows"

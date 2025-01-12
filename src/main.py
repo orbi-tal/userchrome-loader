@@ -46,13 +46,16 @@ class DownloadManager:
             '.woff2', '.eot', '.ico'
         }
 
-    def __init__(self):
-        self.temp_dir = None
+    def __init__(self) -> None:
+        self.temp_dir: str = tempfile.mkdtemp(prefix='ucloader_')
         self.curl = pycurl.Curl()
         self.setup_curl()
 
     def setup_curl(self):
-        """Initialize curl with default settings"""
+        """Initialize or reinitialize curl object"""
+        if self.curl is None:
+            self.curl = pycurl.Curl()
+
         self.curl.setopt(pycurl.FOLLOWLOCATION, 1)
         self.curl.setopt(pycurl.MAXREDIRS, 5)
         self.curl.setopt(pycurl.TIMEOUT, 300)
@@ -561,7 +564,8 @@ class Main:
     MAX_FILE_SIZE: Final[int] = 10 * 1024 * 1024  # 10MB
 
     def __init__(self, installation_type: str | None = None) -> None:
-        self.curl = None
+        self.curl: pycurl.Curl | None = None
+        self.setup_curl()
         self.home_dir: str = str(Path.home())
         self.zen_dir: str = ""
         self.profiles_ini_path: str = ""
@@ -647,6 +651,21 @@ class Main:
                 print("Invalid selection. Please try again.")
             except ValueError:
                 print("Please enter a number.")
+
+    def setup_curl(self):
+        """Initialize curl object"""
+        if not hasattr(self, 'curl') or self.curl is None:
+            self.curl = pycurl.Curl()
+        self.curl.setopt(pycurl.FOLLOWLOCATION, 1)
+        self.curl.setopt(pycurl.MAXREDIRS, 5)
+        self.curl.setopt(pycurl.TIMEOUT, 300)
+        self.curl.setopt(pycurl.HTTPHEADER, [
+            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language: en-US,en;q=0.5',
+            'Accept-Encoding: gzip, deflate, br',
+            'Connection: keep-alive',
+        ])
 
     def setup_paths(self):
         system = platform.system().lower()
@@ -1088,9 +1107,10 @@ class Main:
         return None
 
     def handle_github_url(self, url: str) -> tuple[bool, str, str]:
-        """Handle GitHub repository or file downloads"""
+        if not self.temp_dir:
+            self.temp_dir = tempfile.mkdtemp(prefix='ucloader_')
+
         try:
-            # Parse GitHub URL
             parts = url.split('github.com/')
             if len(parts) != 2:
                 return False, "Invalid GitHub URL", ""
@@ -1102,65 +1122,40 @@ class Main:
             owner = path_parts[0]
             repo = path_parts[1]
 
-            # Determine if it's a file or repository
             if len(path_parts) > 4 and path_parts[2] in ('blob', 'tree'):
-                # It's a file or directory within the repository
                 branch = path_parts[3]
                 file_path = '/'.join(path_parts[4:])
 
-                # Convert blob URL to raw URL for single files
                 if path_parts[2] == 'blob':
                     raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{file_path}"
-                    download_path = os.path.join(self.temp_dir, os.path.basename(file_path))
+                    download_path = str(Path(self.temp_dir) / os.path.basename(file_path))
                     success, message = self.download_file(raw_url, download_path)
                     if not success:
                         return False, message, ""
-                    return True, "File downloaded successfully", self.temp_dir
-
-            # Default to downloading the repository
-            download_url = f"https://api.github.com/repos/{owner}/{repo}/zipball"
-            archive_path = os.path.join(self.temp_dir, 'repo.zip')
+                    return True, "File downloaded successfully", str(self.temp_dir)
 
             # Download repository
+            download_url = f"https://api.github.com/repos/{owner}/{repo}/zipball"
+            archive_path = str(Path(self.temp_dir) / 'repo.zip')
+            extract_path = str(Path(self.temp_dir) / 'extracted')
+
             success, message = self.download_file(download_url, archive_path)
             if not success:
                 return False, message, ""
 
-            # Extract the archive
-            extract_path = os.path.join(self.temp_dir, 'extracted')
             success, message, final_path = self.process_archive(archive_path, extract_path)
-            if not success:
-                return False, message, ""
-
-            return True, "Repository downloaded successfully", final_path
+            return success, message, final_path
 
         except Exception as e:
             return False, f"Failed to process GitHub URL: {str(e)}", ""
 
-    def download_github_contents(self, url: str) -> None:
+    def download_github_contents(self, url: str) -> str | None:
         """Download and process GitHub repository contents"""
         try:
-            owner, repo, branch, subpath = self.parse_github_url(url)
-            repo_dir = None
-
-            # Ensure temp_dir exists and is a string
-            if not self.temp_dir or not isinstance(self.temp_dir, str):
-                self.temp_dir = tempfile.mkdtemp(prefix='ucloader_')
-
-            # First try using pygit2
-            try:
-                import pygit2
-                repo_dir = self._clone_with_pygit2(owner, repo, branch, subpath)
-            except ImportError:
-                # Fall back to GitPython
-                try:
-                    from git import Repo
-                    repo_dir = self._clone_with_gitpython(owner, repo, branch, subpath)
-                except ImportError:
-                    # Fall back to direct download
-                    repo_dir = self._download_github_archive(owner, repo, branch, subpath)
-
-            return repo_dir
+            success, message, path = self.handle_github_url(url)
+            if success:
+                return path
+            return None
         except Exception as e:
             raise RuntimeError(f"Failed to download repository: {e}")
 
@@ -1192,9 +1187,10 @@ class Main:
         except Exception as e:
             return FileOperationResult(success=False, message=f"Error processing files: {e}")
 
-
     def download_file(self, url: str, save_path: str) -> tuple[bool, str]:
-        """Download file from URL"""
+        if not self.curl:
+            self.setup_curl()
+
         buffer = BytesIO()
         try:
             self.curl.setopt(pycurl.URL, url)
