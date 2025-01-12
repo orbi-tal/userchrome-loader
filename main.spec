@@ -1,15 +1,43 @@
 # -*- mode: python ; coding: utf-8 -*-
-import sys
+import platform
 from PyInstaller.utils.hooks import collect_all
 
-# Include all required modules
-hiddenimports = [
+def get_platform():
+    return platform.system().lower()
+
+# Platform specific configurations
+PLATFORM_CONFIG = {
+    'linux': {
+        'strip': True,
+        'upx': True,
+        'upx_exclude': ['libQt6Core.so.6'],
+        'console': False,
+        'disable_windowed_traceback': True,
+        'argv_emulation': False,
+    },
+    'windows': {
+        'strip': True,
+        'upx': True,
+        'console': False,
+        'disable_windowed_traceback': True,
+        'argv_emulation': False,
+    },
+    'darwin': {
+        'strip': True,
+        'upx': True,
+        'console': False,
+        'disable_windowed_traceback': True,
+        'argv_emulation': True,
+    }
+}
+
+# Required modules for all platforms
+HIDDEN_IMPORTS = [
     'PyQt6.QtWidgets',
     'PyQt6.QtCore',
     'PyQt6.QtGui',
     'pycurl',
     'libarchive',
-    'libarchive.public',
     'json',
     'configparser',
     'platform',
@@ -26,10 +54,11 @@ for pkg in ['PyQt6', 'libarchive']:
     data, bin, hidden = collect_all(pkg)
     datas.extend(data)
     binaries.extend(bin)
-    hiddenimports.extend(hidden)
+    HIDDEN_IMPORTS.extend(hidden)
 
-# Exclude unnecessary modules
-excludes = [
+# Modules to exclude
+EXCLUDES = [
+    # Basic Python modules
     'tkinter',
     'unittest',
     'email',
@@ -42,6 +71,7 @@ excludes = [
     'distutils',
     'pkg_resources',
     'PIL',
+    # Unused Qt modules
     'PyQt6.QtBluetooth',
     'PyQt6.QtDBus',
     'PyQt6.QtDesigner',
@@ -74,30 +104,56 @@ excludes = [
     'PyQt6.QtXml'
 ]
 
-a = Analysis(
-    ['src/gui.py'],
-    pathex=[],
-    binaries=binaries,
-    datas=datas,
-    hiddenimports=hiddenimports,
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
-    excludes=excludes,
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=None,
-    noarchive=False,
-)
-
-# Remove unnecessary files
 def remove_from_list(source, patterns):
+    """Remove unnecessary files based on patterns"""
     for file in list(source):
         for pattern in patterns:
             if pattern in str(file):
                 source.remove(file)
                 break
 
+def remove_linux_libraries(binaries):
+    """Remove unnecessary Linux-specific libraries"""
+    if get_platform() != 'linux':
+        return binaries
+
+    exclude_patterns = [
+        'libicu',
+        'libmysqlclient',
+        'libodbc',
+        'libpq',
+        'libldap',
+        'libsasl2',
+        'libgnutls',
+        'libhogweed',
+        'libtasn1',
+        'libp11-kit',
+        'libnettle',
+        'libxml2',
+        'libxcb-glx'
+    ]
+
+    return [(name, path) for name, path in binaries
+            if not any(pattern in name for pattern in exclude_patterns)]
+
+# Create Analysis object
+a = Analysis(
+    ['src/gui.py'],
+    pathex=[],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=HIDDEN_IMPORTS,
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=['runtime-hook.py'],
+    excludes=EXCLUDES,
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=None,
+    noarchive=False,
+)
+
+# Remove unnecessary Qt components
 exclude_patterns = [
     'QtNetwork',
     'QtQml',
@@ -113,13 +169,20 @@ exclude_patterns = [
 remove_from_list(a.binaries, exclude_patterns)
 remove_from_list(a.datas, exclude_patterns)
 
+# Platform-specific optimizations
+current_platform = get_platform()
+if current_platform == 'linux':
+    a.binaries = remove_linux_libraries(a.binaries)
+
+# Create PYZ archive
 pyz = PYZ(
     a.pure,
     a.zipped_data,
     cipher=None,
-    level=9
+    level=9  # Maximum compression
 )
 
+# Create executable with platform-specific options
 exe = EXE(
     pyz,
     a.scripts,
@@ -130,22 +193,17 @@ exe = EXE(
     name='userchrome-loader',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=True,
-    upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
-    console=False,
-    disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    uac_admin=False,
     icon=None,
     compress=True,
     optimize=2,
+    **PLATFORM_CONFIG[current_platform]
 )
 
-if sys.platform == 'darwin':
+# Create macOS bundle if on Darwin
+if current_platform == 'darwin':
     app = BUNDLE(
         exe,
         name='userchrome-loader.app',
