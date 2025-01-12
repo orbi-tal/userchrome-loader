@@ -106,11 +106,13 @@ EXCLUDES = [
 
 def remove_from_list(source, patterns):
     """Remove unnecessary files based on patterns"""
-    for file in list(source):
-        for pattern in patterns:
-            if pattern in str(file):
-                source.remove(file)
-                break
+    to_remove = []
+    for name, path, typ in source:
+        if any(pattern in str(name) for pattern in patterns):
+            to_remove.append((name, path, typ))
+
+    for item in to_remove:
+        source.remove(item)
 
 def remove_linux_libraries(binaries):
     """Remove unnecessary Linux-specific libraries"""
@@ -133,7 +135,8 @@ def remove_linux_libraries(binaries):
         'libxcb-glx'
     ]
 
-    return [(name, path) for name, path in binaries
+    # Keep the third element (type) in the tuple
+    return [(name, path, typ) for name, path, typ in binaries
             if not any(pattern in name for pattern in exclude_patterns)]
 
 # Create Analysis object
