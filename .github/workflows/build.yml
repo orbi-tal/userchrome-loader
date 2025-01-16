@@ -53,12 +53,17 @@ jobs:
         if: runner.os == 'Linux' || runner.os == 'macOS'
         run: |
           export OPTIMIZE=1
+          # Clean output directory for macOS
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            rm -rf dist/*.app
+          fi
           pyinstaller --clean --upx-dir="$(which upx)" main.spec
         shell: bash
 
       - name: Build with PyInstaller (Windows)
         if: runner.os == 'Windows'
         run: |
+          $env:OPTIMIZE = 1
           $env:PYTHONPATH = $env:pythonLocation
           $env:PATH = "$env:pythonLocation;$env:pythonLocation\Scripts;$env:PATH"
           pyinstaller --clean --upx-dir="$(which upx)" main.spec
