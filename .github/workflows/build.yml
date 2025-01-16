@@ -49,11 +49,20 @@ jobs:
         shell: bash
 
       # Build with PyInstaller
-      - name: Build with PyInstaller
+      - name: Build with PyInstaller (Unix)
+        if: runner.os == 'Linux' || runner.os == 'macOS'
         run: |
           export OPTIMIZE=1
           pyinstaller --clean --upx-dir="$(which upx)" main.spec
         shell: bash
+
+      - name: Build with PyInstaller (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $env:PYTHONPATH = $env:pythonLocation
+          $env:PATH = "$env:pythonLocation;$env:pythonLocation\Scripts;$env:PATH"
+          pyinstaller --clean --upx-dir="$(which upx)" main.spec
+        shell: pwsh
 
       # Create platform-specific packages
       - name: Create AppImage (Linux)
