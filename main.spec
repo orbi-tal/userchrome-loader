@@ -8,21 +8,18 @@ def get_platform():
 # Platform specific configurations
 PLATFORM_CONFIG = {
     'linux': {
-        'strip': True,
         'upx': True,
         'upx_args': ['--best', '--lzma'],  # Maximum compression for Linux
         'console': False,
         'disable_windowed_traceback': False,
     },
     'windows': {
-        'strip': True,
         'upx': True,
         'upx_args': ['--best', '--lzma'],  # Maximum compression for Windows
         'console': False,
         'disable_windowed_traceback': False,
     },
     'darwin': {
-        'strip': True,
         'upx': True,
         'upx_args': ['--best', '--lzma'],  # Maximum compression for macOS
         'console': False,
@@ -103,8 +100,11 @@ exe = EXE(
     name='userchrome-loader',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=True,
-    **PLATFORM_CONFIG[get_platform()]
+    strip=True,  # Strip symbols here
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    **PLATFORM_CONFIG[get_platform()]  # Platform specific settings
 )
 
 if get_platform() == 'darwin':
