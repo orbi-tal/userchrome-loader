@@ -49,15 +49,18 @@ jobs:
         shell: bash
 
       # Build with PyInstaller
-      - name: Build with PyInstaller (Unix)
-        if: runner.os == 'Linux' || runner.os == 'macOS'
+      - name: Build with PyInstaller (Linux)
+        if: runner.os == 'Linux'
         run: |
           export OPTIMIZE=1
-          # Clean output directory for macOS
-          if [ "$RUNNER_OS" == "macOS" ]; then
-            rm -rf dist/*.app
-          fi
           pyinstaller --clean --upx-dir="$(which upx)" main.spec
+        shell: bash
+
+      - name: Build with PyInstaller (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          export OPTIMIZE=1
+          pyinstaller --clean --noconfirm --upx-dir="$(which upx)" main.spec
         shell: bash
 
       - name: Build with PyInstaller (Windows)
